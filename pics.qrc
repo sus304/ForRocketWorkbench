@@ -1,0 +1,9 @@
+<RCC>
+  <qresource prefix="icon">
+    <file>pic/outline_lens_blur_white_24dp.png</file>
+    <file>pic/outline_more_horiz_white_24dp.png</file>
+    <file>forrocket_icon.ico</file>
+    <file>pic/outline_where_to_vote_white_24dp.png</file>
+    <file>pic/outline_wifi_tethering_white_24dp.png</file>
+  </qresource>
+</RCC>
