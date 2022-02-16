@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1125</width>
-    <height>640</height>
+    <height>645</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -318,134 +318,6 @@ border-width: 1px;</string>
      </size>
     </property>
    </widget>
-   <widget class="QPushButton" name="pushButton_stage_config_json">
-    <property name="geometry">
-     <rect>
-      <x>590</x>
-      <y>120</y>
-      <width>41</width>
-      <height>31</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Meiryo UI</family>
-      <pointsize>11</pointsize>
-     </font>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">background-color: rgba(80, 80, 80, 0);</string>
-    </property>
-    <property name="text">
-     <string/>
-    </property>
-    <property name="icon">
-     <iconset resource="pics.qrc">
-      <normaloff>:/icon/pic/outline_more_horiz_white_24dp.png</normaloff>:/icon/pic/outline_more_horiz_white_24dp.png</iconset>
-    </property>
-    <property name="iconSize">
-     <size>
-      <width>24</width>
-      <height>24</height>
-     </size>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="pushButton_rocket_param_json">
-    <property name="geometry">
-     <rect>
-      <x>590</x>
-      <y>200</y>
-      <width>41</width>
-      <height>31</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Meiryo UI</family>
-      <pointsize>11</pointsize>
-     </font>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">background-color: rgba(80, 80, 80, 0);</string>
-    </property>
-    <property name="text">
-     <string/>
-    </property>
-    <property name="icon">
-     <iconset resource="pics.qrc">
-      <normaloff>:/icon/pic/outline_more_horiz_white_24dp.png</normaloff>:/icon/pic/outline_more_horiz_white_24dp.png</iconset>
-    </property>
-    <property name="iconSize">
-     <size>
-      <width>24</width>
-      <height>24</height>
-     </size>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="pushButton_engine_param_json">
-    <property name="geometry">
-     <rect>
-      <x>590</x>
-      <y>280</y>
-      <width>41</width>
-      <height>31</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Meiryo UI</family>
-      <pointsize>11</pointsize>
-     </font>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">background-color: rgba(80, 80, 80, 0);</string>
-    </property>
-    <property name="text">
-     <string/>
-    </property>
-    <property name="icon">
-     <iconset resource="pics.qrc">
-      <normaloff>:/icon/pic/outline_more_horiz_white_24dp.png</normaloff>:/icon/pic/outline_more_horiz_white_24dp.png</iconset>
-    </property>
-    <property name="iconSize">
-     <size>
-      <width>24</width>
-      <height>24</height>
-     </size>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="pushButton_soe_json">
-    <property name="geometry">
-     <rect>
-      <x>590</x>
-      <y>360</y>
-      <width>41</width>
-      <height>31</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Meiryo UI</family>
-      <pointsize>11</pointsize>
-     </font>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">background-color: rgba(80, 80, 80, 0);</string>
-    </property>
-    <property name="text">
-     <string/>
-    </property>
-    <property name="icon">
-     <iconset resource="pics.qrc">
-      <normaloff>:/icon/pic/outline_more_horiz_white_24dp.png</normaloff>:/icon/pic/outline_more_horiz_white_24dp.png</iconset>
-    </property>
-    <property name="iconSize">
-     <size>
-      <width>24</width>
-      <height>24</height>
-     </size>
-    </property>
-   </widget>
    <widget class="QPushButton" name="pushButton_area_config_json">
     <property name="geometry">
      <rect>
@@ -481,10 +353,10 @@ border-width: 1px;</string>
    <widget class="QTextEdit" name="textEdit_console_view">
     <property name="geometry">
      <rect>
-      <x>650</x>
-      <y>240</y>
-      <width>451</width>
-      <height>341</height>
+      <x>630</x>
+      <y>280</y>
+      <width>461</width>
+      <height>321</height>
      </rect>
     </property>
     <property name="font">
@@ -509,10 +381,10 @@ p, li { white-space: pre-wrap; }
    <widget class="QGroupBox" name="groupBox">
     <property name="geometry">
      <rect>
-      <x>650</x>
-      <y>20</y>
-      <width>281</width>
-      <height>91</height>
+      <x>630</x>
+      <y>10</y>
+      <width>461</width>
+      <height>51</height>
      </rect>
     </property>
     <property name="font">
@@ -527,7 +399,7 @@ p, li { white-space: pre-wrap; }
     <widget class="QLabel" name="label_18">
      <property name="geometry">
       <rect>
-       <x>130</x>
+       <x>110</x>
        <y>20</y>
        <width>31</width>
        <height>21</height>
@@ -546,8 +418,8 @@ p, li { white-space: pre-wrap; }
     <widget class="QLabel" name="label_13">
      <property name="geometry">
       <rect>
-       <x>20</x>
-       <y>50</y>
+       <x>160</x>
+       <y>20</y>
        <width>51</width>
        <height>21</height>
       </rect>
@@ -565,7 +437,7 @@ p, li { white-space: pre-wrap; }
     <widget class="QLabel" name="label_cpu_freq">
      <property name="geometry">
       <rect>
-       <x>80</x>
+       <x>60</x>
        <y>20</y>
        <width>41</width>
        <height>21</height>
@@ -587,9 +459,9 @@ p, li { white-space: pre-wrap; }
     <widget class="QLabel" name="label_16">
      <property name="geometry">
       <rect>
-       <x>20</x>
+       <x>10</x>
        <y>20</y>
-       <width>51</width>
+       <width>41</width>
        <height>21</height>
       </rect>
      </property>
@@ -606,8 +478,8 @@ p, li { white-space: pre-wrap; }
     <widget class="QLabel" name="label_cpu_usage">
      <property name="geometry">
       <rect>
-       <x>80</x>
-       <y>50</y>
+       <x>210</x>
+       <y>20</y>
        <width>41</width>
        <height>21</height>
       </rect>
@@ -628,9 +500,9 @@ p, li { white-space: pre-wrap; }
     <widget class="QLabel" name="label_15">
      <property name="geometry">
       <rect>
-       <x>130</x>
-       <y>50</y>
-       <width>31</width>
+       <x>260</x>
+       <y>20</y>
+       <width>16</width>
        <height>21</height>
       </rect>
      </property>
@@ -647,9 +519,9 @@ p, li { white-space: pre-wrap; }
     <widget class="QLabel" name="label_19">
      <property name="geometry">
       <rect>
-       <x>210</x>
+       <x>320</x>
        <y>20</y>
-       <width>61</width>
+       <width>41</width>
        <height>21</height>
       </rect>
      </property>
@@ -666,8 +538,8 @@ p, li { white-space: pre-wrap; }
     <widget class="QLabel" name="label_cpu_thread">
      <property name="geometry">
       <rect>
-       <x>170</x>
-       <y>50</y>
+       <x>360</x>
+       <y>20</y>
        <width>31</width>
        <height>21</height>
       </rect>
@@ -688,9 +560,9 @@ p, li { white-space: pre-wrap; }
     <widget class="QLabel" name="label_cpu_core">
      <property name="geometry">
       <rect>
-       <x>170</x>
+       <x>290</x>
        <y>20</y>
-       <width>31</width>
+       <width>21</width>
        <height>21</height>
       </rect>
      </property>
@@ -710,9 +582,9 @@ p, li { white-space: pre-wrap; }
     <widget class="QLabel" name="label_17">
      <property name="geometry">
       <rect>
-       <x>210</x>
-       <y>50</y>
-       <width>61</width>
+       <x>400</x>
+       <y>20</y>
+       <width>51</width>
        <height>21</height>
       </rect>
      </property>
@@ -726,41 +598,6 @@ p, li { white-space: pre-wrap; }
       <string>Thread</string>
      </property>
     </widget>
-   </widget>
-   <widget class="QPushButton" name="pushButton_get_solver_version">
-    <property name="geometry">
-     <rect>
-      <x>970</x>
-      <y>30</y>
-      <width>111</width>
-      <height>21</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Meiryo UI</family>
-      <pointsize>10</pointsize>
-     </font>
-    </property>
-    <property name="layoutDirection">
-     <enum>Qt::LeftToRight</enum>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">background-color: rgb(80, 80, 80);</string>
-    </property>
-    <property name="text">
-     <string>Solver Version</string>
-    </property>
-    <property name="icon">
-     <iconset>
-      <normaloff>white-24dp (5)/2x/outline_upload_white_24dp.png</normaloff>white-24dp (5)/2x/outline_upload_white_24dp.png</iconset>
-    </property>
-    <property name="iconSize">
-     <size>
-      <width>32</width>
-      <height>32</height>
-     </size>
-    </property>
    </widget>
    <widget class="Line" name="line">
     <property name="geometry">
@@ -830,9 +667,9 @@ p, li { white-space: pre-wrap; }
    <widget class="QGroupBox" name="groupBox_2">
     <property name="geometry">
      <rect>
-      <x>650</x>
-      <y>120</y>
-      <width>451</width>
+      <x>630</x>
+      <y>160</y>
+      <width>461</width>
       <height>101</height>
      </rect>
     </property>
@@ -880,7 +717,7 @@ p, li { white-space: pre-wrap; }
     <widget class="QPushButton" name="pushButton_area_calc">
      <property name="geometry">
       <rect>
-       <x>160</x>
+       <x>170</x>
        <y>30</y>
        <width>131</width>
        <height>51</height>
@@ -912,7 +749,7 @@ p, li { white-space: pre-wrap; }
     <widget class="QPushButton" name="pushButton_dispersion_calc">
      <property name="geometry">
       <rect>
-       <x>300</x>
+       <x>320</x>
        <y>30</y>
        <width>131</width>
        <height>51</height>
@@ -960,76 +797,6 @@ p, li { white-space: pre-wrap; }
       <string>Use Max CPU Thread</string>
      </property>
     </widget>
-   </widget>
-   <widget class="QPushButton" name="pushButton_get_runner_version">
-    <property name="geometry">
-     <rect>
-      <x>970</x>
-      <y>60</y>
-      <width>111</width>
-      <height>21</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Meiryo UI</family>
-      <pointsize>10</pointsize>
-     </font>
-    </property>
-    <property name="layoutDirection">
-     <enum>Qt::LeftToRight</enum>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">background-color: rgb(80, 80, 80);</string>
-    </property>
-    <property name="text">
-     <string>Runner Version</string>
-    </property>
-    <property name="icon">
-     <iconset>
-      <normaloff>white-24dp (5)/2x/outline_upload_white_24dp.png</normaloff>white-24dp (5)/2x/outline_upload_white_24dp.png</iconset>
-    </property>
-    <property name="iconSize">
-     <size>
-      <width>32</width>
-      <height>32</height>
-     </size>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="pushButton_get_post_version">
-    <property name="geometry">
-     <rect>
-      <x>970</x>
-      <y>90</y>
-      <width>111</width>
-      <height>21</height>
-     </rect>
-    </property>
-    <property name="font">
-     <font>
-      <family>Meiryo UI</family>
-      <pointsize>10</pointsize>
-     </font>
-    </property>
-    <property name="layoutDirection">
-     <enum>Qt::LeftToRight</enum>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">background-color: rgb(80, 80, 80);</string>
-    </property>
-    <property name="text">
-     <string>Post Version</string>
-    </property>
-    <property name="icon">
-     <iconset>
-      <normaloff>white-24dp (5)/2x/outline_upload_white_24dp.png</normaloff>white-24dp (5)/2x/outline_upload_white_24dp.png</iconset>
-    </property>
-    <property name="iconSize">
-     <size>
-      <width>32</width>
-      <height>32</height>
-     </size>
-    </property>
    </widget>
    <widget class="QLabel" name="label_dispersion_config_json">
     <property name="geometry">
@@ -1106,6 +873,130 @@ border-width: 1px;</string>
     <property name="text">
      <string>Disapersion Config Json</string>
     </property>
+   </widget>
+   <widget class="QGroupBox" name="groupBox_3">
+    <property name="geometry">
+     <rect>
+      <x>630</x>
+      <y>80</y>
+      <width>461</width>
+      <height>61</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <family>Meiryo UI</family>
+      <pointsize>11</pointsize>
+     </font>
+    </property>
+    <property name="title">
+     <string>Solver</string>
+    </property>
+    <widget class="QPushButton" name="pushButton_get_solver_version">
+     <property name="geometry">
+      <rect>
+       <x>30</x>
+       <y>30</y>
+       <width>111</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Meiryo UI</family>
+       <pointsize>10</pointsize>
+      </font>
+     </property>
+     <property name="layoutDirection">
+      <enum>Qt::LeftToRight</enum>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">background-color: rgb(80, 80, 80);</string>
+     </property>
+     <property name="text">
+      <string>Current Version</string>
+     </property>
+     <property name="icon">
+      <iconset>
+       <normaloff>white-24dp (5)/2x/outline_upload_white_24dp.png</normaloff>white-24dp (5)/2x/outline_upload_white_24dp.png</iconset>
+     </property>
+     <property name="iconSize">
+      <size>
+       <width>32</width>
+       <height>32</height>
+      </size>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="pushButton_check_solver_latest_version">
+     <property name="geometry">
+      <rect>
+       <x>180</x>
+       <y>30</y>
+       <width>111</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Meiryo UI</family>
+       <pointsize>10</pointsize>
+      </font>
+     </property>
+     <property name="layoutDirection">
+      <enum>Qt::LeftToRight</enum>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">background-color: rgb(80, 80, 80);</string>
+     </property>
+     <property name="text">
+      <string>Latest Version</string>
+     </property>
+     <property name="icon">
+      <iconset>
+       <normaloff>white-24dp (5)/2x/outline_upload_white_24dp.png</normaloff>white-24dp (5)/2x/outline_upload_white_24dp.png</iconset>
+     </property>
+     <property name="iconSize">
+      <size>
+       <width>32</width>
+       <height>32</height>
+      </size>
+     </property>
+    </widget>
+    <widget class="QPushButton" name="pushButton_update_solver">
+     <property name="geometry">
+      <rect>
+       <x>330</x>
+       <y>30</y>
+       <width>111</width>
+       <height>21</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <family>Meiryo UI</family>
+       <pointsize>10</pointsize>
+      </font>
+     </property>
+     <property name="layoutDirection">
+      <enum>Qt::LeftToRight</enum>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">background-color: rgb(80, 80, 80);</string>
+     </property>
+     <property name="text">
+      <string>Update</string>
+     </property>
+     <property name="icon">
+      <iconset>
+       <normaloff>white-24dp (5)/2x/outline_upload_white_24dp.png</normaloff>white-24dp (5)/2x/outline_upload_white_24dp.png</iconset>
+     </property>
+     <property name="iconSize">
+      <size>
+       <width>32</width>
+       <height>32</height>
+      </size>
+     </property>
+    </widget>
    </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">

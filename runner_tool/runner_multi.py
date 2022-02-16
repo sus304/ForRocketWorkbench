@@ -1,15 +1,20 @@
 import datetime
-import tqdm
+from tqdm import tqdm
 
 import multiprocessing
 from multiprocessing import Pool
 
-from runner_tool.runner_trajectroy import run_trajectroy
+from runner_tool.runner_single import run_single
 
 
 def run_multi(solver_config_json_file_list, max_thread_run=False):
+    '''
+    file_listをイタレータにして複数計算ケースを実行する
+    2ケース以上のみ対応
+    マルチスレッド対応
+    '''
     if len(solver_config_json_file_list) < 1:
-        exit()
+        return
 
     cpu_thread_count = multiprocessing.cpu_count()
     if cpu_thread_count < 3:
@@ -24,7 +29,7 @@ def run_multi(solver_config_json_file_list, max_thread_run=False):
     # 計算時間推定用のテストラン
     print('\rPreparing ...', end='')
     time_start_calc = datetime.datetime.now()
-    run_trajectroy(solver_config_json_file_list[0])
+    run_single(solver_config_json_file_list[0])
     time_end_calc = datetime.datetime.now()
     case_calc_duration = time_end_calc - time_start_calc
     print('\rPrepare Complete\n', end='')
@@ -36,14 +41,14 @@ def run_multi(solver_config_json_file_list, max_thread_run=False):
     if total_case_count < using_cpu_count:
         estimate_total_calc_duration = case_calc_duration
     print('Estimate Calcurate Duration: ', estimate_total_calc_duration)
-    print('Calculating ...')
+    print('\rCalculating ...', end='')
 
     # テストランした先頭ケースを除外してマルチプロセス処理を開始
     case_multi_list = solver_config_json_file_list[1:]
     time_start_calc = datetime.datetime.now()
     with Pool(processes=using_cpu_count) as p:
-        p_imap = p.imap(func=run_trajectroy, iterable=case_multi_list)
-        res = list(tqdm.tqdm(p_imap, total=len(case_multi_list)))
+        p_imap = p.imap(func=run_single, iterable=case_multi_list)
+        res = list(tqdm(p_imap, total=len(case_multi_list)))
     time_end_calc = datetime.datetime.now()
     print('Complete calculate.')
     print('Actual Calculate Duration: ', time_end_calc - time_start_calc)

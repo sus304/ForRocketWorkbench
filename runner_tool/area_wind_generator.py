@@ -1,6 +1,10 @@
 import numpy as np
 
-class AreaWind:
+class AreaWindGenerator:
+    '''
+    落下範囲計算用のべき風を生成するクラス
+    設定jsonから風速/風向のarrayを生成してメンバで持つ
+    '''
     def __init__(self, area_config):
         wind_config = area_config.get('Law Wind')
 
@@ -33,16 +37,4 @@ class AreaWind:
             self.wind_direction_max = 360.0 - self.wind_direction_step
         self.wind_direction_array = np.arange(self.wind_direction_min, self.wind_direction_max+self.wind_direction_step, self.wind_direction_step)
 
-    def make_law_wind(self, height_ref, vel_ref, dir_ref, exp_a):
-        def _law_method(alt):
-            return vel_ref * (alt / height_ref) ** (1 / exp_a)
-
-        alt_max = 20000.0  # 20 km
-
-        base = np.cos(np.arange(0.0, 0.5*np.pi, 0.005))
-        alt_array = alt_max * (1 - base)
-        vel_array = _law_method(alt_array)
-        vel_u_array = -1.0 * vel_array * np.cos(np.radians(dir_ref))
-        vel_v_array = -1.0 * vel_array * np.sin(np.radians(dir_ref))
-
-        return alt_array, vel_u_array, vel_v_array
+    

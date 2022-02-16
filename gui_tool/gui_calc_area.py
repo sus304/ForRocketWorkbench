@@ -1,7 +1,4 @@
 import os
-
-from numpy import result_type
-from runner_tool.runner_trajectroy import run_trajectroy
 import shutil
 import datetime
 import json
@@ -9,9 +6,11 @@ import json
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QFileDialog
 
-from runner_tool.runner_solver import print_solver_version_string
+from runner_tool.solver_control import print_solver_version_string
 from runner_tool.runner_area import run_area
 from post_tool.post_area import post_area
+
+from path_define import runner_area_directory
 
 class RunAreaThread(QObject):
     finished = pyqtSignal()
@@ -40,15 +39,29 @@ class RunAreaThread(QObject):
 
         print('Post processing ...')
 
-        result_dir = 'work_area'
-        post_area(result_dir)
+        # Runner&Postが想定しているディレクトリ構成
+        # root(work_dir=workspace)/
+        #   |- runner_tool/ 
+        #   |- post_tool/
+        #   |- runner.py
+        #   |- post.py
+        #   |- ForRocket.exe
+        #   |- jsons
+        #   |- work_trajectory/
+        #   |               |- result_[model name]/たくさんリザルト
+        #   |               |- result_[model name ballistic]/たくさんリザルト
+        #   |               |- *_flight_log.csv
+        #   |- work_area/たくさんリザルト
+        #   |- work_dispersion/たくさんリザルト
+
+        post_area(runner_area_directory)
 
         print('Complete post process.')
         print('Result packing ...')
 
-        os.remove(result_dir+'/ForRocket.exe')
         result_zip_name ='result_'+model_name+'_area_'+datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-        shutil.make_archive(result_zip_name, 'zip',  base_dir=result_dir)
+        shutil.make_archive(result_zip_name, 'zip',  base_dir=runner_area_directory)
+        
         print('Result: ' + result_zip_name+'.zip')
         print('Complete result packing.')
         

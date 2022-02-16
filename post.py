@@ -1,8 +1,9 @@
 import argparse
+import os
 
 from post_tool.post_trajectory import post_trajectory
 from post_tool.post_area import post_area
-# from post_tool.post_dispersion import post_dispersion
+from post_tool.post_dispersion import post_dispersion
 
 ver_post_tool = '1.0.0'
 
@@ -29,10 +30,10 @@ if __name__ == '__main__':
     print('ForRocket Post Start.')
 
     if args.csv_file:
-        post_trajectory(args.csv_file, args.summary)
+        post_trajectory(os.path.basename(args.csv_file), args.summary)
 
     if args.area_directory:
         post_area(args.area_directory)
 
     if args.dispersion_directory:
-        pass
+        post_dispersion(args.dispersion_directory)

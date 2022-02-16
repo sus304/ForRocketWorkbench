@@ -1,4 +1,5 @@
 import argparse
+import os
 
 from runner_tool.runner_trajectroy import run_trajectroy
 from runner_tool.runner_area import run_area
@@ -26,16 +27,16 @@ if __name__ == '__main__':
     args = get_args()
 
     print('ForRocket Runner Start.')
-
     
     if args.dispersion_config_json:
         print('== Impact Point Dispersion Calcuration Mode ==')
-        # run_dispersion()
+        print(os.path.basename(args.solver_config_json), os.path.basename(args.dispersion_config_json))
+        run_dispersion(os.path.basename(args.solver_config_json), os.path.basename(args.dispersion_config_json), args.use_max_thread)
     elif args.area_config_json:
         print('== Impact Point Area Calcuration Mode ==')
-        run_area(args.solver_config_json, args.area_config_json, args.use_max_thread)
+        run_area(os.path.basename(args.solver_config_json), os.path.basename(args.area_config_json), args.use_max_thread)
     else:
         print('== Trajectory Calculation Mode ==')   
-        run_trajectroy(args.solver_config_json)
+        run_trajectroy(os.path.basename(args.solver_config_json))
 
 
