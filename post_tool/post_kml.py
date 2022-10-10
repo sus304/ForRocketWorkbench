@@ -13,7 +13,7 @@ def dump_trajectory_kml(df_all, file_prefix):
     for i in range(len(alt_array)):
         if 0 == i % 10:  # そのままプロットすると点が多すぎて重いので間引く
             log_lon_lat_alt.append([lon_array[i], lat_array[i], alt_array[i]])  # kmlの仕様上Lon,Lat,Heightの並びに変換
-    
+
     line = kml.newlinestring()
     line.style.linestyle.width = 5
     line.style.linestyle.color = simplekml.Color.red
@@ -37,6 +37,33 @@ def dump_area_kml(impact_points_LatLon, file_prefix):
         points.append(points[0])
         linestring.coords = points
     kml.save(file_prefix + '_impact_area.kml')
+
+
+def dump_montecarlo_points_kml(impact_points_LatLon, case_numbers, file_prefix):
+    kml = simplekml.Kml()
+    for i in range(len(impact_points_LatLon)):
+        kml_point = kml.newpoint()
+        p = [[impact_points_LatLon[i][1], impact_points_LatLon[i][0]]]
+        kml_point.coords = p
+        kml_point.style.iconstyle.icon.href = "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png"
+        exdata = simplekml.ExtendedData()
+        exdata.newdata(name='Case', value=case_numbers[i])
+        exdata.newdata(name='Lat', value=impact_points_LatLon[i][0])
+        exdata.newdata(name='Lon', value=impact_points_LatLon[i][1])
+        kml_point.extendeddata = exdata
+    kml.save(file_prefix + '_impact_points.kml')
+
+def dump_montecarlo_envelop_kml(envelop_corner_LatLon, file_prefix):
+    kml = simplekml.Kml()
+    linestring = kml.newlinestring()
+    linestring.style.linestyle.color = simplekml.Color.orange
+    kml_points = []
+    for point in envelop_corner_LatLon:
+        p = [point[1], point[0], 0]
+        kml_points.append(p)
+    kml_points.append(kml_points[0])
+    linestring.coords = kml_points
+    kml.save(file_prefix + '_impact_3sigma_envelop.kml')
 
 
 def dump_dispersion_points_kml(impact_points_LatLon, file_prefix):

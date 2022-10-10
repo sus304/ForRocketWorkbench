@@ -227,7 +227,7 @@ def thrust_file_is_enable(engine_param):
 def get_thrust_file_name(engine_param):
     return engine_param.get('Thrust File').get('Thrust at vacuum File Path')
 def set_thrust_file_name(engine_param, thrust_file_name):
-    engine_param = engine_param['Thrust File']['Thrust at vacuum File Path'] = thrust_file_name
+    engine_param['Thrust File']['Thrust at vacuum File Path'] = thrust_file_name
     return engine_param
 def get_constant_thrust(engine_param):
     return engine_param.get('Constant Thrust').get('Thrust at vacuum [N]')
@@ -322,5 +322,5 @@ def copy_config_files(solver_config, dst_dir):
         engine_param = get_engine_param(stage_config)
         _file_copy_by_param(engine_param, 'Enable Thrust File', 'Thrust File', 'Thrust at vacuum File Path', dst_dir)
 
-       
-    
+
+

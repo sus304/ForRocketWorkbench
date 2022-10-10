@@ -746,7 +746,7 @@ p, li { white-space: pre-wrap; }
       </size>
      </property>
     </widget>
-    <widget class="QPushButton" name="pushButton_dispersion_calc">
+    <widget class="QPushButton" name="pushButton_montecarlo_calc">
      <property name="geometry">
       <rect>
        <x>320</x>
@@ -765,7 +765,7 @@ p, li { white-space: pre-wrap; }
       <string notr="true">background-color: rgb(80, 80, 80);</string>
      </property>
      <property name="text">
-      <string>Dispersion</string>
+      <string>MonteCarlo</string>
      </property>
      <property name="icon">
       <iconset resource="pics.qrc">
@@ -798,7 +798,7 @@ p, li { white-space: pre-wrap; }
      </property>
     </widget>
    </widget>
-   <widget class="QLabel" name="label_dispersion_config_json">
+   <widget class="QLabel" name="label_montecarlo_config_json">
     <property name="geometry">
      <rect>
       <x>50</x>
@@ -820,10 +820,10 @@ border-style: solid;
 border-width: 1px;</string>
     </property>
     <property name="text">
-     <string>config_dispersion.json</string>
+     <string>config_montecarlo.json</string>
     </property>
    </widget>
-   <widget class="QPushButton" name="pushButton_dispersion_config_json">
+   <widget class="QPushButton" name="pushButton_montecarlo_config_json">
     <property name="geometry">
      <rect>
       <x>550</x>
@@ -871,7 +871,7 @@ border-width: 1px;</string>
      </font>
     </property>
     <property name="text">
-     <string>Disapersion Config Json</string>
+     <string>MonteCarlo Config Json</string>
     </property>
    </widget>
    <widget class="QGroupBox" name="groupBox_3">

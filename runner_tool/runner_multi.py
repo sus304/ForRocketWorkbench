@@ -17,10 +17,7 @@ def run_multi(solver_config_json_file_list, max_thread_run=False):
         return
 
     cpu_thread_count = multiprocessing.cpu_count()
-    if cpu_thread_count < 3:
-        using_cpu_count = 1
-    else:
-        using_cpu_count = int(cpu_thread_count / 3)
+    using_cpu_count = 1
     if max_thread_run and cpu_thread_count > 1:
         using_cpu_count = cpu_thread_count - 1
     print('CPU Max Thread: '+str(cpu_thread_count))
@@ -52,5 +49,5 @@ def run_multi(solver_config_json_file_list, max_thread_run=False):
     time_end_calc = datetime.datetime.now()
     print('Complete calculate.')
     print('Actual Calculate Duration: ', time_end_calc - time_start_calc)
-    
+
 
