@@ -26,6 +26,6 @@ def post_trajectory(trajectory_work_dir):
         plot_graph(df_all, df_burning, df_coasting, result_dir+'/')
         dump_trajectory_kml(df_all, result_dir+'/')
         summary_txt, _ = post_summary(df_all, result_dir+'/')
-    
+
     os.chdir('../')
 

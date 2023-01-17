@@ -32,7 +32,7 @@ if __name__ == '__main__':
     print('ForRocket Post Start.')
 
     if args.csv_file:
-        post_trajectory(os.path.basename(args.csv_file), args.summary)
+        post_trajectory(os.path.basename(args.csv_file))
 
     if args.area_directory:
         post_area(args.area_directory)
