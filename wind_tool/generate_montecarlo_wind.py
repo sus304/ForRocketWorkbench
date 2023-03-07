@@ -11,8 +11,10 @@ def generate_montecarlo_2sigma_winds(base_wind_csv_path, diff_wind_csv_path, num
     df_base = pd.read_csv(base_wind_csv_path)
 
     alt_array = df_base['alt'].to_list()
-    u_base_array = df_base['u_mean']
-    v_base_array = df_base['v_mean']
+    # u_base_array = df_base['u_mean']
+    # v_base_array = df_base['v_mean']
+    u_base_array = df_base.iloc[:,1]
+    v_base_array = df_base.iloc[:,2]
 
     df_diff = pd.read_csv(diff_wind_csv_path)
 
@@ -64,10 +66,16 @@ def generate_montecarlo_2sigma_winds(base_wind_csv_path, diff_wind_csv_path, num
 
 
 if __name__ == '__main__':
-    mean_csv_path = 'C:/cygwin64/home/sus304/ForRocketProject/wind/WindGPV/MSM/statistic/noshiro_sea2sea_2017-2021y_9-10m_9-15h/wind_statistic_data.csv'
-    est_act_diff_csv_path = 'C:/cygwin64/home/sus304/ForRocketProject/wind/WindGPV/MSM/statistic/noshiro_sea2sea_2017-2021y_9-10m_9-15h/wind_estimate_error_12h.csv'
+    mean_csv_path = 'wind_statistic_data.csv'
+    est_act_diff_csv_path = 'wind_diff_act_fsct_9h.csv'
 
-    generate_montecarlo_2sigma_winds(mean_csv_path, est_act_diff_csv_path, 10000)
+    alt, u, v = generate_montecarlo_2sigma_winds(mean_csv_path, est_act_diff_csv_path, 10000)
+
+    target = []
+    for u_case in u:
+        target.append(u_case[3])
+
+    print(np.mean(target))
 
 
 
