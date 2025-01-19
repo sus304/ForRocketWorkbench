@@ -97,7 +97,23 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
     secondary_CdS_list = []
 
     if error_params.get('Wind').get('Enable'):
-        wind_alt_list, wind_u_list, wind_v_list = generate_montecarlo_2sigma_winds(error_params.get('Wind').get('Base Wind File Path'), error_params.get('Wind').get('Estimate Error Wind File Path'), case_count)
+        zipfile_path = error_params.get('Wind').get('Wind Files Zip Path')
+        if zipfile_path == '':
+            raise ValueError('Wind Files Zip Path is empty')
+        if not os.path.exists(zipfile_path):
+            raise FileNotFoundError(zipfile_path)
+        shutil.unpack_archive(zipfile_path, work_dir+'/')
+        winds_dir = os.path.splitext(os.path.basename(zipfile_path))[0]
+        wind_files = os.listdir(work_dir+'/'+winds_dir)
+
+        if case_count > len(wind_files):
+            # ケース数が風ファイル数より多い場合、風ファイルをランダムにコピーしてcase_countに合わせる
+            for i in range(case_count - len(wind_files)):
+                wind_file = wind_files[np.random.randint(0, len(wind_files))]
+                shutil.copy(work_dir+'/'+winds_dir+'/'+wind_file, work_dir+'/'+winds_dir+'/'+str(i)+'_wind.csv')
+        wind_files = os.listdir(work_dir+'/'+winds_dir)
+        np.random.shuffle(wind_files)
+        # wind_alt_list, wind_u_list, wind_v_list = generate_montecarlo_2sigma_winds(error_params.get('Wind').get('Base Wind File Path'), error_params.get('Wind').get('Estimate Error Wind File Path'), case_count)
 
     if error_params.get('Launcher Elevation').get('Enable'):
         mean = get_elevation(solver_config)
@@ -244,7 +260,9 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
         # wind
         wind_file_name = str(case_num)+'_wind.csv'
         if error_params.get('Wind').get('Enable'):
-            np.savetxt(work_dir+'/'+calc_dir+'/'+wind_file_name, np.c_[np.array(wind_alt_list[case_num]), np.array(wind_u_list[case_num]), np.array(wind_v_list[case_num])], delimiter=',', fmt='%0.5f', header='alt,u,v', comments='')
+            wind_file_name = wind_files[case_num]
+            shutil.copy(work_dir+'/'+winds_dir+'/'+wind_file_name, work_dir+'/'+calc_dir+'/'+wind_file_name)
+            # np.savetxt(work_dir+'/'+calc_dir+'/'+wind_file_name, np.c_[np.array(wind_alt_list[case_num]), np.array(wind_u_list[case_num]), np.array(wind_v_list[case_num])], delimiter=',', fmt='%0.5f', header='alt,u,v', comments='')
         else:
             load_array = np.loadtxt(solver_config_case['Wind Condition']['Wind File Path'], delimiter=',', skiprows=1)
             height_array = load_array[:,0]
