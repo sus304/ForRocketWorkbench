@@ -13,7 +13,7 @@ def get_args():
 
     # argparser.add_argument('-p', '--prefix', help='prefix that post file name', type=str, default='default')
 
-    argparser.add_argument('-c', '--csv-file', help="solve result csv file.", type=str)
+    argparser.add_argument('-c', '--csv-directory', help="solve result directory.", type=str)
     argparser.add_argument('-a', '--area-directory', help="area solve result directory.", type=str)
     argparser.add_argument('-m', '--montecarlo-directory', help="dispersion solve result directory.", type=str)
     # argparser.add_argument('-d', '--dispersion-directory', help="dispersion solve result directory.", type=str)
@@ -31,8 +31,8 @@ if __name__ == '__main__':
 
     print('ForRocket Post Start.')
 
-    if args.csv_file:
-        post_trajectory(os.path.basename(args.csv_file))
+    if args.csv_directory:
+        post_trajectory(args.csv_directory)
 
     if args.area_directory:
         post_area(args.area_directory)
