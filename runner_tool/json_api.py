@@ -18,6 +18,36 @@ def set_elevation(solver_config, elv):
     solver_config['Launch Condition']['Elevation [deg]'] = elv
     return solver_config
 
+def get_initial_altitude(solver_config):
+    return solver_config.get('Launch Condition').get('Height for WGS84 [m]')
+def set_initial_altitude(solver_config, alt):
+    solver_config['Launch Condition']['Height for WGS84 [m]'] = alt
+    return solver_config
+
+def get_initial_velocity(solver_config):
+    north = solver_config.get('Launch Condition').get('North Velocity [m/s]')
+    east = solver_config.get('Launch Condition').get('East Velocity [m/s]')
+    down = solver_config.get('Launch Condition').get('Down Velocity [m/s]')
+    return north, east, down
+def set_initial_velocity(solver_config, north, east, down):
+    solver_config['Launch Condition']['North Velocity [m/s]'] = north
+    solver_config['Launch Condition']['East Velocity [m/s]'] = east
+    solver_config['Launch Condition']['Down Velocity [m/s]'] = down
+    return solver_config
+
+def get_wind_file_path(solver_config):
+    return solver_config.get('Wind Condition').get('Wind File Path')
+def set_wind_file_path(solver_config, file_path):
+    solver_config['Wind Condition']['Wind File Path'] = file_path
+    return solver_config
+
+def get_moving_equ_wind_mode(solver_config):
+    return solver_config.get('Launch Condition').get('Moving equivalent wind mode')
+def set_moving_equ_wind_mode(solver_config, mode):
+    solver_config['Launch Condition']['Moving equivalent wind mode'] = mode
+    return solver_config
+
+
 
 ## Stage Config ####################################
 def get_stage_count(solver_config):
