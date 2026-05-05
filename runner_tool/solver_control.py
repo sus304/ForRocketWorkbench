@@ -41,9 +41,9 @@ def run_solver(solver_config_json_file_path, cwd=None):
     binary = _find_binary()
     _current_process = subprocess.Popen(
         [str(binary), solver_config_json_file_path],
-        cwd=cwd, stdout=subprocess.PIPE,
+        cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
-    _current_process.wait()
+    _current_process.communicate()
     _current_process = None
 
 
