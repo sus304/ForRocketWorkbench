@@ -390,7 +390,8 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
         for i in range(case_count):
             future = executor.submit(__run, i)
             future_list.append(future)
-        _ = futures.as_completed(fs=future_list)
+        for fut in futures.as_completed(future_list):
+            fut.result()  # propagate exceptions
 
     case_solver_config_file_name_list = [case.solver_config_file_name for case in montecarlo_case_list]
 

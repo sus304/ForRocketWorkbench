@@ -29,11 +29,15 @@ def run_multi(cases_dir, solver_config_file_list, max_thread_run=False):
 
     args = [(cases_dir, f) for f in solver_config_file_list]
 
+    original_cwd = os.getcwd()
     time_start = datetime.datetime.now()
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(_worker, arg) for arg in args]
-        for _ in tqdm(as_completed(futures), total=len(futures)):
-            pass
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(_worker, arg) for arg in args]
+            for _ in tqdm(as_completed(futures), total=len(futures)):
+                pass
+    finally:
+        os.chdir(original_cwd)
     elapsed = datetime.datetime.now() - time_start
 
     print(f'Complete. Elapsed: {elapsed}')
