@@ -1,6 +1,6 @@
 import os
 import datetime
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 from runner_tool.runner_single import run_single
@@ -30,7 +30,7 @@ def run_multi(cases_dir, solver_config_file_list, max_thread_run=False):
     args = [(cases_dir, f) for f in solver_config_file_list]
 
     time_start = datetime.datetime.now()
-    with ProcessPoolExecutor(max_workers=workers) as executor:
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = [executor.submit(_worker, arg) for arg in args]
         for _ in tqdm(as_completed(futures), total=len(futures)):
             pass
