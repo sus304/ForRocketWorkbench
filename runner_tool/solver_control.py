@@ -33,10 +33,25 @@ def clean_solver_binary(dst_dir):
         target.unlink()
 
 
+_current_process = None
+
+
 def run_solver(solver_config_json_file_path, cwd=None):
+    global _current_process
     binary = _find_binary()
-    subprocess.run([str(binary), solver_config_json_file_path],
-                   cwd=cwd, stdout=subprocess.PIPE)
+    _current_process = subprocess.Popen(
+        [str(binary), solver_config_json_file_path],
+        cwd=cwd, stdout=subprocess.PIPE,
+    )
+    _current_process.wait()
+    _current_process = None
+
+
+def cancel_current_solver():
+    global _current_process
+    proc = _current_process
+    if proc is not None:
+        proc.terminate()
 
 
 def print_solver_version_string():

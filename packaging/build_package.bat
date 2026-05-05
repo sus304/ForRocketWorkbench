@@ -14,9 +14,9 @@ set package_dir=ForRocketWorkbench_v%workbench_ver_dot%_%current_date%%str_time%
 set zipfile_name=ForRocketWorkbench_v%workbench_ver_us%_%current_date%%str_time%.zip
 set project_dir=ForRocketWorkbench
 
-pipenv run pyrcc5 -o resources.py pics.qrc
+pipenv run pyrcc5 -o pics_rc.py pics.qrc
 pipenv run pyuic5 -o gui_tool\main_window_ui.py gui_tool\main_window.ui
-pipenv run pyinstaller .\ForRocketWorkbench.py --onefile --noconsole --icon=forrocket_icon.ico
+pipenv run pyinstaller packaging\ForRocketWorkbench.spec
 
 copy ForRocket.exe dist
 copy forrocket_icon.ico dist

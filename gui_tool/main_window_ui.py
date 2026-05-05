@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file 'main_window.ui'
+# Form implementation generated from reading ui file 'gui_tool/main_window.ui'
 #
 # Created by: PyQt5 UI code generator 5.15.7
 #
@@ -363,7 +363,7 @@ class Ui_MainWindow(object):
         self.pushButton_get_solver_version.setLayoutDirection(QtCore.Qt.LeftToRight)
         self.pushButton_get_solver_version.setStyleSheet("background-color: rgb(80, 80, 80);")
         icon5 = QtGui.QIcon()
-        icon5.addPixmap(QtGui.QPixmap("white-24dp (5)/2x/outline_upload_white_24dp.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon5.addPixmap(QtGui.QPixmap("gui_tool/white-24dp (5)/2x/outline_upload_white_24dp.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         self.pushButton_get_solver_version.setIcon(icon5)
         self.pushButton_get_solver_version.setIconSize(QtCore.QSize(32, 32))
         self.pushButton_get_solver_version.setObjectName("pushButton_get_solver_version")
@@ -446,5 +446,5 @@ class Ui_MainWindow(object):
         self.pushButton_get_solver_version.setText(_translate("MainWindow", "Current Version"))
         self.pushButton_check_solver_latest_version.setText(_translate("MainWindow", "Latest Version"))
         self.pushButton_update_solver.setText(_translate("MainWindow", "Update"))
-        self.action.setText(_translate("MainWindow", "ライセンス"))
+        self.action.setText(_translate("MainWindow", "License"))
 import pics_rc

@@ -1015,7 +1015,7 @@ border-width: 1px;</string>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="action">
    <property name="text">
-    <string>ライセンス</string>
+    <string>License</string>
    </property>
   </action>
  </widget>

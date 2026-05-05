@@ -1,5 +1,6 @@
 import sys
 import os
+import json
 import shutil
 
 from PyQt5 import QtCore
@@ -35,7 +36,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.setupUi(self)
         self.__set_ui()
 
-        sys.stdout = EmittingStream(textWritten=self.stdout_write)
+        self._stdout_stream = EmittingStream()
+        self._stdout_stream.textWritten.connect(self.stdout_write, QtCore.Qt.QueuedConnection)
+        sys.stdout = self._stdout_stream
 
     def __del__(self):
         sys.stdout = sys.__stdout__
@@ -68,12 +71,31 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cpu_status_refresh_timer.timeout.connect(self.refresh_cpu_status)
         self.cpu_status_refresh_timer.start()
 
-        self.license_action = QAction('ライセンス', self)
+        self.license_action = QAction('License', self)
         self.license_action.triggered.connect(self.show_about)
-        help_menu = self.ui.menubar.addMenu('ヘルプ')
+        help_menu = self.ui.menubar.addMenu('Help')
         help_menu.addAction(self.license_action)
 
+        self._setup_progress_ui()
         self.show()
+
+    def _setup_progress_ui(self):
+        # Shrink console view slightly to make room for progress bar row
+        self.ui.textEdit_console_view.setGeometry(QtCore.QRect(630, 290, 461, 311))
+
+        self.progress_bar = QtWidgets.QProgressBar(self.ui.centralwidget)
+        self.progress_bar.setGeometry(QtCore.QRect(630, 264, 370, 18))
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat('%p%  %v')
+        self.progress_bar.show()
+
+        self.pushButton_cancel = QtWidgets.QPushButton(self.ui.centralwidget)
+        self.pushButton_cancel.setGeometry(QtCore.QRect(1007, 262, 84, 22))
+        self.pushButton_cancel.setText('Cancel')
+        self.pushButton_cancel.setEnabled(False)
+        self.pushButton_cancel.setStyleSheet('background-color: rgb(80, 80, 80);')
+        self.pushButton_cancel.show()
 
     def stdout_write(self, text):
         line_count = self.ui.textEdit_console_view.document().blockCount()
@@ -110,7 +132,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.label_solver_config_json.setText(solver_config_path)
         try:
             stage_config_path, rocket_param_path, engine_param_path, soe_path = auto_suggest_jsons_path(solver_config_path)
-        except:
+        except (OSError, json.JSONDecodeError, TypeError):
             return
         self.ui.label_stage_config_json.setText(stage_config_path)
         self.ui.label_rocket_param_json.setText(rocket_param_path)
@@ -130,13 +152,39 @@ class MainWindow(QtWidgets.QMainWindow):
             self.ui.label_soe_json.text(),
         )
 
+    def _on_calc_progress(self, value, message):
+        self.progress_bar.setValue(value)
+
+    def _on_calc_finished(self, zip_path):
+        """Open save dialog in main thread, then clean up work directory."""
+        self.pushButton_cancel.setEnabled(False)
+        try:
+            self.pushButton_cancel.clicked.disconnect()
+        except TypeError:
+            pass
+        self.progress_bar.setValue(0)
+        self._current_worker = None
+
+        if zip_path:
+            suggested = os.path.join(os.path.expanduser('~'), 'Desktop', os.path.basename(zip_path))
+            fname = QFileDialog.getSaveFileName(self, 'Export result files', suggested, '*.zip')
+            if fname[0]:
+                shutil.copy(zip_path, fname[0])
+        shutil.rmtree(workbench_work_directory, ignore_errors=True)
+
     def _launch_worker(self, worker):
         """Wire worker to a new QThread, disable all calc buttons until done."""
+        self._current_worker = worker
+        self.pushButton_cancel.setEnabled(True)
+        self.pushButton_cancel.clicked.connect(worker.request_cancel)
+
         self.thread = QThread()
         worker.moveToThread(self.thread)
         self.thread.started.connect(worker.run)
         worker.finished.connect(self.thread.quit)
         worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(self._on_calc_finished)
+        worker.progress.connect(self._on_calc_progress)
         self.thread.finished.connect(self.thread.deleteLater)
         self.thread.start()
 
@@ -148,7 +196,6 @@ class MainWindow(QtWidgets.QMainWindow):
         for btn in calc_buttons:
             btn.setEnabled(False)
             self.thread.finished.connect(lambda b=btn: b.setEnabled(True))
-        self.thread.finished.connect(lambda: shutil.rmtree(workbench_work_directory))
 
     # ------------------------------------------------------------------
     # Calc launchers
