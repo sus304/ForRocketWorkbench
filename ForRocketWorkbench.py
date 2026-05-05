@@ -6,7 +6,7 @@ import PyQt5.QtWidgets as QtWidgets
 import PyQt5.QtGui as QtGui
 
 # Window
-from main_window import MainWindow
+from gui_tool.main_window import MainWindow
 
 argvs = sys.argv
 argc = len(argvs)

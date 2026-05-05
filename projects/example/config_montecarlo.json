@@ -1,0 +1,136 @@
+{
+    "MonteCarlo Case Count": 300,
+
+    "Error Parameters": {
+        "Wind": {
+            "Enable": false,
+            "Wind Files Zip Path": "winds.zip"
+        },
+        "Launcher Azimuth": {
+            "Enable": true,
+            "Error Unit": "deg",
+            "Error 3sigma Low": 20.0,
+            "Error 3sigma High": 20.0
+        },
+        "Launcher Elevation": {
+            "Enable": true,
+            "Error Unit": "deg",
+            "Error 3sigma Low": 5.0,
+            "Error 3sigma High": 5.0
+        },
+        "CA": {
+            "Enable": true,
+            "Error Unit": "%",
+            "Error 3sigma Low": 10.0,
+            "Error 3sigma High": 10.0
+        },
+        "Propellant Mass": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 2.0,
+            "Error 3sigma High": 2.0
+        },
+        "Thrust": {
+            "Enable": true,
+            "Error Unit": "%",
+            "Error 3sigma Low": 5.0,
+            "Error 3sigma High": 5.0
+        },
+        "XCG": {
+            "Enable": false,
+            "Error Unit": "m",
+            "Error 3sigma Low": 0.01,
+            "Error 3sigma High": 0.01
+        },
+        "MOI": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 5.0,
+            "Error 3sigma High": 5.0
+        },
+        "Primary Parachute Drag": {
+            "Enable": true,
+            "Error Unit": "%",
+            "Error 3sigma Low": 10.0,
+            "Error 3sigma High": 10.0
+        },
+        "Primary Parachute Open Time": {
+            "Enable": false,
+            "Error Unit": "s",
+            "Error 3sigma Low": 1.0,
+            "Error 3sigma High": 1.0
+        },
+        "Secondary Parachute Drag": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 10.0,
+            "Error 3sigma High": 10.0
+        },
+        "Secondary Parachute Open Time": {
+            "Enable": false,
+            "Error Unit": "s",
+            "Error 3sigma Low": 1.0,
+            "Error 3sigma High": 1.0
+        },
+        "Mass Inert": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 1.0,
+            "Error 3sigma High": 1.0
+        },
+        "CNa": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 10.0,
+            "Error 3sigma High": 10.0
+        },
+        "XCP": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 5.0,
+            "Error 3sigma High": 5.0
+        },
+        "Clp": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 10.0,
+            "Error 3sigma High": 10.0
+        },
+        "Cmq": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 10.0,
+            "Error 3sigma High": 10.0
+        },
+        "Cnr": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 10.0,
+            "Error 3sigma High": 10.0
+        },
+        "Cld": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 10.0,
+            "Error 3sigma High": 10.0
+        },
+        "Fin Cant Angle": {
+            "Enable": false,
+            "Error Unit": "deg",
+            "Error 3sigma Low": 0.1,
+            "Error 3sigma High": 0.1
+        },
+        "Engine Miss-Alignment Y": {
+            "Enable": false,
+            "Error Unit": "deg",
+            "Error 3sigma Low": 0.5,
+            "Error 3sigma High": 0.5
+        },
+        "Engine Miss-Alignment Z": {
+            "Enable": false,
+            "Error Unit": "deg",
+            "Error 3sigma Low": 0.5,
+            "Error 3sigma High": 0.5
+        }
+    }
+}

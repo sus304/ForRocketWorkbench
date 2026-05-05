@@ -14,7 +14,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -32,6 +31,7 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+!packaging/*.spec
 
 # Installer logs
 pip-log.txt
@@ -127,3 +127,32 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# ForRocket solver binary
+ForRocket
+ForRocket.exe
+
+# ForRocket installer build artifact
+Setup_ForRocketWorkbench.exe
+
+# Project directories (real vehicle data — local only)
+# projects/example/ is excluded from this rule and tracked as a sample
+projects/*/
+projects/*.csv
+projects/*.json
+projects/*.pdf
+!projects/example/
+!projects/example/**
+
+# Calculation work directories
+projects/example/work_trajectory*/
+projects/example/work_montecarlo*/
+projects/example/work_area*/
+projects/example/work_sensitivity*/
+
+# Local-only directories
+.claude/
+docs/
+tests/
+ref/
+cmd_memo.txt

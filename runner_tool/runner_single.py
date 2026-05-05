@@ -15,7 +15,8 @@ from runner_tool.ballistic_generator import generate_ballistic_config_json_file_
 from runner_tool.solver_control import run_solver
 
 def run_single(solver_config_json_file_name):
-    solver_config = json.load(open(solver_config_json_file_name))
+    with open(solver_config_json_file_name) as f:
+        solver_config = json.load(f)
 
     if get_moving_equ_wind_mode(solver_config):
         wind_file_path = get_wind_file_path(solver_config)
@@ -27,6 +28,7 @@ def run_single(solver_config_json_file_name):
         v = float(f_v(alt))
         _, _, d = get_initial_velocity(solver_config)
         solver_config = set_initial_velocity(solver_config, v, u, d)
+        solver_config['Launch Condition'].pop('Moving equivalent wind mode', None)
         with open(solver_config_json_file_name, 'w') as f:
             json.dump(solver_config, f, indent=4)
 

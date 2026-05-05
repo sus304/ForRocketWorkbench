@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 import simplekml
 
 def dump_trajectory_kml(df_all, file_prefix):
@@ -9,10 +8,8 @@ def dump_trajectory_kml(df_all, file_prefix):
     lon_array = np.array(df_all["Longitude [deg]"])
     alt_array = np.array(df_all["Altitude [m]"])
 
-    log_lon_lat_alt = []
-    for i in range(len(alt_array)):
-        if 0 == i % 10:  # そのままプロットすると点が多すぎて重いので間引く
-            log_lon_lat_alt.append([lon_array[i], lat_array[i], alt_array[i]])  # kmlの仕様上Lon,Lat,Heightの並びに変換
+    idx = np.arange(0, len(alt_array), 10)  # そのままプロットすると点が多すぎて重いので間引く
+    log_lon_lat_alt = np.column_stack([lon_array[idx], lat_array[idx], alt_array[idx]]).tolist()
 
     line = kml.newlinestring()
     line.style.linestyle.width = 5
@@ -65,28 +62,5 @@ def dump_montecarlo_envelop_kml(envelop_corner_LatLon, file_prefix):
     linestring.coords = kml_points
     kml.save(file_prefix + '_impact_3sigma_envelop.kml')
 
-
-def dump_dispersion_points_kml(impact_points_LatLon, file_prefix):
-    kml = simplekml.Kml()
-    for i in range(len(impact_points_LatLon)):
-        kml_point = kml.newpoint()
-        p = [[impact_points_LatLon[i][1], impact_points_LatLon[i][0]]]
-        kml_point.coords = p
-        # kml_point.style.iconstyle.icon.href = None
-        kml_point.style.iconstyle.icon.href = "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png"
-    kml.save(file_prefix + '_impact_points.kml')
-
-
-def dump_dispersion_ellipse_kml(ellipse_points_latlon, file_prefix):
-    kml = simplekml.Kml()
-    linestring = kml.newlinestring()
-    linestring.style.linestyle.color = simplekml.Color.orange
-    kml_points = []
-    for point in ellipse_points_latlon:
-        p = [point[1], point[0], 0]
-        kml_points.append(p)
-    kml_points.append(kml_points[0])
-    linestring.coords = kml_points
-    kml.save(file_prefix + '_impact_3sigma_ellipse.kml')
 
 

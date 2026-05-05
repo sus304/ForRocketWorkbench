@@ -1,0 +1,26 @@
+{
+    "Model ID": "SAMPLE",
+    "Launch DateTime": "2026/01/01 6:00:00.0",
+    "Launch Condition": {
+        "Latitude [deg]": 31.25,
+        "Longitude [deg]": 131.08,
+        "Height for WGS84 [m]": 100.0,
+        "Azimuth [deg]": 90.0,
+        "Elevation [deg]": 85.0,
+        "North Velocity [m/s]": 0.0,
+        "East Velocity [m/s]": 0.0,
+        "Down Velocity [m/s]": 0.0,
+        "Yaw Angular Velocity [deg/s]": 0.0,
+        "Pitch Angular Velocity [deg/s]": 0.0,
+        "Roll Angular Velocity [deg/s]": 0.0,
+        "Moving equivalent wind mode": false
+    },
+    "Wind Condition": {
+        "Enable Wind": true,
+        "Wind File Path": "wind.csv"
+    },
+    "Number of Stage": 1,
+    "Stage1 Config File List": "param_list_stage1.json",
+    "Stage2 Config File List": "stage_config_list.json",
+    "Stage3 Config File List": "stage_config_list.json"
+}

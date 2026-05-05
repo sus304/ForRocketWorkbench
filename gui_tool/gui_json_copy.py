@@ -44,7 +44,7 @@ def import_jsons(work_dir,
         shutil.copy2(path, work_dir+'/')
 
     # from rocket config
-    _file_copy_by_param_file(rocket_param_json_path, 'Enable Program Attitude', 'Program Attitude File', 'Program Attitude File Path', work_dir)
+    _file_copy_by_param_file(rocket_param_json_path, 'Enable Program Attitude', 'Program Attitude', 'File Path', work_dir)
     _file_copy_by_param_file(rocket_param_json_path, 'Enable X-C.G. File', 'X-C.G. File', 'X-C.G. File Path', work_dir)
     _file_copy_by_param_file(rocket_param_json_path, 'Enable M.I. File', 'M.I. File', 'M.I. File Path', work_dir)
     _file_copy_by_param_file(rocket_param_json_path, 'Enable X-C.P. File', 'X-C.P. File', 'X-C.P. File Path', work_dir)
@@ -80,15 +80,3 @@ def import_montecarlo_json(work_dir, montecarlo_config_json_path):
     return os.path.basename(montecarlo_config_json_path)
 
 
-def import_dispersion_json(work_dir, dispersion_config_json_path):
-    shutil.copy2(dispersion_config_json_path, work_dir)
-    base_dir = os.path.dirname(dispersion_config_json_path) + '/'
-
-    dsp_config = json.load(open(dispersion_config_json_path, mode='r'))
-    shutil.copy2(base_dir+dsp_config.get('Wind Parameter File'), work_dir)
-    shutil.copy2(base_dir+dsp_config.get('Solver Parameter File'), work_dir)
-    shutil.copy2(base_dir+dsp_config.get('Rocket Parameter File'), work_dir)
-    shutil.copy2(base_dir+dsp_config.get('Engine Parameter File'), work_dir)
-    shutil.copy2(base_dir+dsp_config.get('SOE Parameter File'), work_dir)
-
-    return os.path.basename(dispersion_config_json_path)

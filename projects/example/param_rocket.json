@@ -1,0 +1,97 @@
+{
+    "Diameter [mm]": 200,
+    "Length [mm]": 3500,
+    "Mass": {
+        "Inert [kg]": 40.0,
+        "Propellant [kg]": 25.0
+    },
+    "Enable Gas Jet": false,
+    "Gas Jet": {
+        "Rolling Moment [N.m]": 0.0,
+        "Duration [s]": 0.0
+    },
+    "Enable Program Attitude": false,
+    "Program Attitude": {
+        "Mode": "Angle",
+        "Enable Yaw": false,
+        "Enable Pitch": false,
+        "Enable Roll": false,
+        "File Path": ""
+    },
+    "Enable X-C.G. File": false,
+    "X-C.G. File": {
+        "X-C.G. File Path": ""
+    },
+    "Constant X-C.G.": {
+        "Constant X-C.G. from BodyTail [mm]": 1800.0
+    },
+    "Comment M.I.": "Moment of Inertia",
+    "Enable M.I. File": false,
+    "M.I. File": {
+        "M.I. File Path": ""
+    },
+    "Constant M.I.": {
+        "Yaw Axis [kg-m2]": 120.0,
+        "Pitch Axis [kg-m2]": 120.0,
+        "Roll Axis [kg-m2]": 0.5
+    },
+    "Enable X-C.P. File": false,
+    "X-C.P. File": {
+        "X-C.P. File Path": ""
+    },
+    "Constant X-C.P.": {
+        "Constant X-C.P. from BodyTail [mm]": 1400.0
+    },
+    "X-ThrustLoadingPoint from BodyTail [mm]": 0.0,
+    "Comment CA": "Axial Force Coefficient",
+    "Enable CA File": false,
+    "CA File": {
+        "CA File Path": "",
+        "BurnOut CA File Path": ""
+    },
+    "Constant CA": {
+        "Constant CA [-]": 0.50,
+        "Constant BurnOut CA [-]": 0.50
+    },
+    "Comment CNa": "Normal Force div AoA Coefficient",
+    "Enable CNa File": false,
+    "CNa File": {
+        "CNa File Path": ""
+    },
+    "Constant CNa": {
+        "Constant CNa [1/rad]": 5.0
+    },
+    "Comment Cld": "Roll Force div FinCantAngle Coefficient",
+    "Fin Cant Angle [deg]": 0.0,
+    "Enable Cld File": false,
+    "Cld File": {
+        "Cld File Path": ""
+    },
+    "Constant Cld": {
+        "Constant Cld [1/rad]": 0.0
+    },
+    "Comment Clp": "Roll Damping Moment Coefficient",
+    "Enable Clp File": false,
+    "Clp File": {
+        "Clp File Path": ""
+    },
+    "Constant Clp": {
+        "Constant Clp [-]": -0.02
+    },
+    "Comment Cmq": "Pitch Damping Moment Coefficient",
+    "Enable Cmq File": false,
+    "Cmq File": {
+        "Cmq File Path": ""
+    },
+    "Constant Cmq": {
+        "Constant Cmq [-]": -2.0
+    },
+    "Comment Cnr": "Yaw Damping Moment Coefficient",
+    "Enable Cnr File": false,
+    "Cnr File": {
+        "Cnr File Path": ""
+    },
+    "Constant Cnr": {
+        "Constant Cnr [-]": -2.0
+    }
+}

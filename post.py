@@ -4,9 +4,8 @@ import os
 from post_tool.post_trajectory import post_trajectory
 from post_tool.post_area import post_area
 from post_tool.post_montecarlo import post_montecarlo
-# from post_tool.post_dispersion import post_dispersion
 
-ver_post_tool = '1.0.0'
+ver_post_tool = '1.1.0'
 
 def get_args():
     argparser = argparse.ArgumentParser(prog='PostTool')
@@ -15,8 +14,7 @@ def get_args():
 
     argparser.add_argument('-c', '--csv-directory', help="solve result directory.", type=str)
     argparser.add_argument('-a', '--area-directory', help="area solve result directory.", type=str)
-    argparser.add_argument('-m', '--montecarlo-directory', help="dispersion solve result directory.", type=str)
-    # argparser.add_argument('-d', '--dispersion-directory', help="dispersion solve result directory.", type=str)
+    argparser.add_argument('-m', '--montecarlo-directory', help="montecarlo solve result directory.", type=str)
 
     argparser.add_argument('-s', '--summary', action="store_true", help='display result summary.')
 

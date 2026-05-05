@@ -1,0 +1,12 @@
+{
+    "Law Wind": {
+        "Wind Characteristic Coefficient": 0.143,
+        "Reference Height [m]": 10.0,
+        "Reference Wind Speed Lower Limit [m/s]": 2.0,
+        "Reference Wind Speed Upper Limit [m/s]": 10.0,
+        "Reference Wind Speed Step [m/s]": 2.0,
+        "Wind Direction Lower Limit [deg]": 0.0,
+        "Wind Direction Upper Limit [deg]": 350.0,
+        "Wind Direction Step [deg]": 10.0
+    }
+}

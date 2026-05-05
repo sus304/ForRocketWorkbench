@@ -1,0 +1,40 @@
+{
+    "Flight Start Time [s]": 0.0,
+    "Engine Ignittion Time [s]": 0.0,
+    "Enable Rail-Launcher Launch": true,
+    "Rail Launcher": {
+        "Length [m]": 5.0
+    },
+    "Enable Engine Cutoff": false,
+    "Cutoff": {
+        "Cutoff Time [s]": 0.0
+    },
+    "Enable Stage Separation": false,
+    "Upper Stage": {
+        "Stage Separation Time [s]": 0.0,
+        "Upper Stage Mass [kg]": 0.0
+    },
+    "Enable Despin Control": false,
+    "Despin": {
+        "Time [s]": 0.0
+    },
+    "Enable Fairing Jettson": false,
+    "Fairing": {
+        "Jettson Time [s]": 0.0,
+        "Mass [kg]": 0.0
+    },
+    "Enable Parachute Open": true,
+    "Parachute": {
+        "Open Time [s]": 0.0,
+        "Drag Factor Cd*S [m2]": 3.0,
+        "Enable Forced Apogee Open": true
+    },
+    "Enable Secondary Parachute Open": false,
+    "Secondary Parachute": {
+        "Open Time [s]": 0.0,
+        "Drag Factor Cd*S [m2]": 0.0
+    },
+    "Flight End Time [s]": 500.0,
+    "Time Step [s]": 0.1,
+    "Enable Auto Terminate SubOrbital Flight": true
+}

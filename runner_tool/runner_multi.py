@@ -1,53 +1,39 @@
+import os
 import datetime
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
-
-import multiprocessing
-from multiprocessing import Pool
 
 from runner_tool.runner_single import run_single
 
 
-def run_multi(solver_config_json_file_list, max_thread_run=False):
+def _worker(args):
+    cases_dir, filename = args
+    os.chdir(cases_dir)
+    run_single(filename)
+
+
+def run_multi(cases_dir, solver_config_file_list, max_thread_run=False):
     '''
-    file_listをイタレータにして複数計算ケースを実行する
-    2ケース以上のみ対応
-    マルチスレッド対応
+    cases_dir: 絶対パス。各ケースのJSONファイルが置かれたディレクトリ。
+    solver_config_file_list: cases_dir からの相対ファイル名リスト。
+    max_thread_run: True の場合 cpu_count スレッド、False の場合 cpu_count-1 スレッド使用。
     '''
-    if len(solver_config_json_file_list) < 1:
+    if not solver_config_file_list:
         return
 
-    cpu_thread_count = multiprocessing.cpu_count()
-    using_cpu_count = 1
-    if max_thread_run and cpu_thread_count > 1:
-        using_cpu_count = cpu_thread_count - 1
-    print('CPU Max Thread: '+str(cpu_thread_count))
-    print('Using CPU Thread: '+str(using_cpu_count))
+    cpu = os.cpu_count() or 1
+    workers = cpu if max_thread_run else max(1, cpu - 1)
 
-    # 計算時間推定用のテストラン
-    print('\rPreparing ...', end='')
-    time_start_calc = datetime.datetime.now()
-    run_single(solver_config_json_file_list[0])
-    time_end_calc = datetime.datetime.now()
-    case_calc_duration = time_end_calc - time_start_calc
-    print('\rPrepare Complete\n', end='')
+    print(f'CPU count: {cpu}, Using workers: {workers}')
+    print(f'Total: {len(solver_config_file_list)} cases')
 
-    total_case_count = len(solver_config_json_file_list)
-    print('Total: '+str(total_case_count)+' case')
+    args = [(cases_dir, f) for f in solver_config_file_list]
 
-    estimate_total_calc_duration = case_calc_duration * total_case_count / using_cpu_count
-    if total_case_count < using_cpu_count:
-        estimate_total_calc_duration = case_calc_duration
-    print('Estimate Calcurate Duration: ', estimate_total_calc_duration)
-    print('\rCalculating ...', end='')
+    time_start = datetime.datetime.now()
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_worker, arg) for arg in args]
+        for _ in tqdm(as_completed(futures), total=len(futures)):
+            pass
+    elapsed = datetime.datetime.now() - time_start
 
-    # テストランした先頭ケースを除外してマルチプロセス処理を開始
-    case_multi_list = solver_config_json_file_list[1:]
-    time_start_calc = datetime.datetime.now()
-    with Pool(processes=using_cpu_count) as p:
-        p_imap = p.imap(func=run_single, iterable=case_multi_list)
-        res = list(tqdm(p_imap, total=len(case_multi_list)))
-    time_end_calc = datetime.datetime.now()
-    print('Complete calculate.')
-    print('Actual Calculate Duration: ', time_end_calc - time_start_calc)
-
-
+    print(f'Complete. Elapsed: {elapsed}')

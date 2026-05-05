@@ -8,101 +8,82 @@ from post_tool.post_kml import dump_trajectory_kml
 from post_tool.post_summary import post_summary
 from post_tool.post_kml import dump_area_kml
 
+from path_define import chdir
+
 
 def post_area(area_work_dir):
-    os.chdir(area_work_dir)
+    with chdir(area_work_dir):
+        log_file_list = glob.glob('*_flight_log.csv')
 
-    # ディレクトリ内の*_flight_log.csvをリストアップする
-    log_file_list = glob.glob('*_flight_log.csv')
+        stage1_log_file_list = []
+        stage1_ballistic_log_file_list = []
+        for file in tqdm(log_file_list):
+            if '_stage1_' in file:
+                if '_ballistic_' in file:
+                    stage1_ballistic_log_file_list.append(file)
+                else:
+                    stage1_log_file_list.append(file)
 
-    # stage毎に振り分け
-    # 弾道と減速を振り分け
-    # Stage1のみ対応
-    stage1_log_file_list = []
-    stage1_ballistic_log_file_list = []
-    stage2_log_file_list = []
-    stage3_log_file_list = []
-    for file in tqdm(log_file_list):
-        if '_stage1_' in file:
-            if '_ballistic_' in file:
-                stage1_ballistic_log_file_list.append(file)
-            else:
-                stage1_log_file_list.append(file)
-        elif '_stage2_' in file:
-            stage2_log_file_list.append(file)
-        elif '_stage3_' in file:
-            stage3_log_file_list.append(file)
-
-    # ケース条件から風向風速の数を検出
-    case_param_list = np.loadtxt('wind_case_list.csv', delimiter=',', skiprows=1)
-    previous_speed = case_param_list[0][1]
-    direction_count = 0
-    for i in range(len(case_param_list)):
-        # 1風速内の風向数を検出
-        if previous_speed != case_param_list[i][1]:
-            direction_count = i
-            break
-    if direction_count == 0:
-        direction_count += len(case_param_list)
-    speed_count = int(len(case_param_list) / direction_count)  # 風速数を検出
-
-    # ケースナンバーからログファイルを振り分け
-    direction_loop_list = []
-    speed_loop_list = []
-    for i in tqdm(range(len(case_param_list))):  # ケース0から探索
-        case_num = int(case_param_list[i][0])
-        for file in stage1_log_file_list:
-            if '_wind'+str(case_num)+'_' in file:
-                direction_loop_list.append(file)
+        case_param_list = np.loadtxt('wind_case_list.csv', delimiter=',', skiprows=1)
+        previous_speed = case_param_list[0][1]
+        direction_count = 0
+        for i in range(len(case_param_list)):
+            if previous_speed != case_param_list[i][1]:
+                direction_count = i
                 break
-        
-        if len(direction_loop_list) == direction_count:
-            speed_loop_list.append(direction_loop_list)
-            direction_loop_list = []
+        if direction_count == 0:
+            direction_count += len(case_param_list)
+        speed_count = int(len(case_param_list) / direction_count)
 
-    ballicstic_speed_loop_list = []
-    if len(stage1_ballistic_log_file_list) != 0:
+        direction_loop_list = []
+        speed_loop_list = []
         for i in tqdm(range(len(case_param_list))):
             case_num = int(case_param_list[i][0])
-            for file in stage1_ballistic_log_file_list:
-                if '_wind'+str(case_num)+'_' in file:
+            for file in stage1_log_file_list:
+                if '_wind' + str(case_num) + '_' in file:
                     direction_loop_list.append(file)
                     break
-            
             if len(direction_loop_list) == direction_count:
-                ballicstic_speed_loop_list.append(direction_loop_list)
+                speed_loop_list.append(direction_loop_list)
                 direction_loop_list = []
 
-    # 着地点を抽出してkmlへ
-    speed_impact_points_latlon = []
-    direction_impact_points_latlon = []
-    for direction_log_files in tqdm(speed_loop_list):
-        for log_file in direction_log_files:
-            case_name = os.path.split(log_file)[-1].rsplit('_flight_log.csv', 1)[0]
-            df, _, _ = csv2df(log_file)
-            dump_trajectory_kml(df, case_name)  # 軌道kml出力
-            _, latlon = post_summary(df, case_name)  # summary出力
-            direction_impact_points_latlon.append(latlon)
-        speed_impact_points_latlon.append(direction_impact_points_latlon)
-        direction_impact_points_latlon = []
+        ballicstic_speed_loop_list = []
+        if len(stage1_ballistic_log_file_list) != 0:
+            for i in tqdm(range(len(case_param_list))):
+                case_num = int(case_param_list[i][0])
+                for file in stage1_ballistic_log_file_list:
+                    if '_wind' + str(case_num) + '_' in file:
+                        direction_loop_list.append(file)
+                        break
+                if len(direction_loop_list) == direction_count:
+                    ballicstic_speed_loop_list.append(direction_loop_list)
+                    direction_loop_list = []
 
-    if len(stage1_ballistic_log_file_list) == 0:
-        dump_area_kml(speed_impact_points_latlon, 'ballistic')
-    
-    else:
-        dump_area_kml(speed_impact_points_latlon, 'decent')
         speed_impact_points_latlon = []
         direction_impact_points_latlon = []
-        for direction_log_files in tqdm(ballicstic_speed_loop_list):
+        for direction_log_files in tqdm(speed_loop_list):
             for log_file in direction_log_files:
                 case_name = os.path.split(log_file)[-1].rsplit('_flight_log.csv', 1)[0]
                 df, _, _ = csv2df(log_file)
-                dump_trajectory_kml(df, case_name)  # 軌道kml出力
+                dump_trajectory_kml(df, case_name)
                 _, latlon = post_summary(df, case_name)
                 direction_impact_points_latlon.append(latlon)
             speed_impact_points_latlon.append(direction_impact_points_latlon)
             direction_impact_points_latlon = []
-        dump_area_kml(speed_impact_points_latlon, 'ballistic')
 
-
-    os.chdir('../')
+        if len(stage1_ballistic_log_file_list) == 0:
+            dump_area_kml(speed_impact_points_latlon, 'ballistic')
+        else:
+            dump_area_kml(speed_impact_points_latlon, 'decent')
+            speed_impact_points_latlon = []
+            direction_impact_points_latlon = []
+            for direction_log_files in tqdm(ballicstic_speed_loop_list):
+                for log_file in direction_log_files:
+                    case_name = os.path.split(log_file)[-1].rsplit('_flight_log.csv', 1)[0]
+                    df, _, _ = csv2df(log_file)
+                    dump_trajectory_kml(df, case_name)
+                    _, latlon = post_summary(df, case_name)
+                    direction_impact_points_latlon.append(latlon)
+                speed_impact_points_latlon.append(direction_impact_points_latlon)
+                direction_impact_points_latlon = []
+            dump_area_kml(speed_impact_points_latlon, 'ballistic')

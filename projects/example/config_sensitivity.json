@@ -1,0 +1,31 @@
+{
+    "Sensitivity Calculation": {
+        "Method": "two_point"
+    },
+    "Sensitivity Parameters": [
+        {
+            "Name": "Thrust",
+            "Variation Unit": "%",
+            "Variations": [-10, -5, 5, 10],
+            "Reference Variations": [-10, 10]
+        },
+        {
+            "Name": "Launcher Elevation",
+            "Variation Unit": "deg",
+            "Variations": [-5, -2, 2, 5],
+            "Reference Variations": [-5, 5]
+        },
+        {
+            "Name": "CA",
+            "Variation Unit": "%",
+            "Variations": [-20, -10, 10, 20],
+            "Reference Variations": [-20, 20]
+        },
+        {
+            "Name": "Propellant Mass",
+            "Variation Unit": "%",
+            "Variations": [-5, -2, 2, 5],
+            "Reference Variations": [-5, 5]
+        }
+    ]
+}

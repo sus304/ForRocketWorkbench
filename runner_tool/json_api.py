@@ -35,6 +35,17 @@ def set_initial_velocity(solver_config, north, east, down):
     solver_config['Launch Condition']['Down Velocity [m/s]'] = down
     return solver_config
 
+def get_angular_velocity(solver_config):
+    yaw   = solver_config.get('Launch Condition').get('Yaw Angular Velocity [deg/s]', 0.0)
+    pitch = solver_config.get('Launch Condition').get('Pitch Angular Velocity [deg/s]', 0.0)
+    roll  = solver_config.get('Launch Condition').get('Roll Angular Velocity [deg/s]', 0.0)
+    return yaw, pitch, roll
+def set_angular_velocity(solver_config, yaw, pitch, roll):
+    solver_config['Launch Condition']['Yaw Angular Velocity [deg/s]']   = yaw
+    solver_config['Launch Condition']['Pitch Angular Velocity [deg/s]'] = pitch
+    solver_config['Launch Condition']['Roll Angular Velocity [deg/s]']  = roll
+    return solver_config
+
 def get_wind_file_path(solver_config):
     return solver_config.get('Wind Condition').get('Wind File Path')
 def set_wind_file_path(solver_config, file_path):
@@ -68,7 +79,8 @@ def get_stage_config_file_name(solver_config, stage_number):
 
 def get_stage_config(solver_config, stage_number):
     stage_config_file_path = get_stage_config_file_path(solver_config, stage_number)
-    stage_config = json.load(open(stage_config_file_path))
+    with open(stage_config_file_path) as f:
+        stage_config = json.load(f)
     return stage_config
 
 
@@ -82,7 +94,8 @@ def get_rocket_param_file_name(stage_config):
 
 def get_rocket_param(stage_config):
     rocket_param_file_path = get_rocket_param_file_path(stage_config)
-    rocket_param = json.load(open(rocket_param_file_path))
+    with open(rocket_param_file_path) as f:
+        rocket_param = json.load(f)
     return rocket_param
 
 def get_mass_inert(rocket_param):
@@ -249,7 +262,8 @@ def get_engine_param_file_name(stage_config):
 
 def get_engine_param(stage_config):
     engine_param_file_path = get_engine_param_file_path(stage_config)
-    engine_param = json.load(open(engine_param_file_path))
+    with open(engine_param_file_path) as f:
+        engine_param = json.load(f)
     return engine_param
 
 def thrust_file_is_enable(engine_param):
@@ -262,7 +276,7 @@ def set_thrust_file_name(engine_param, thrust_file_name):
 def get_constant_thrust(engine_param):
     return engine_param.get('Constant Thrust').get('Thrust at vacuum [N]')
 def set_constant_thrust(engine_param, thrust):
-    engine_param = engine_param['Constant Thrust']['Thrust at vacuum [N]'] = thrust
+    engine_param['Constant Thrust']['Thrust at vacuum [N]'] = thrust
     return engine_param
 
 def get_engine_miss_alignment_y(engine_param):
@@ -287,7 +301,8 @@ def get_soe_file_name(stage_config):
 
 def get_soe(stage_config):
     soe_file_path = get_soe_file_path(stage_config)
-    soe = json.load(open(soe_file_path))
+    with open(soe_file_path) as f:
+        soe = json.load(f)
     return soe
 
 
@@ -304,8 +319,19 @@ def get_secondary_parachute_drag_factor(soe):
 def set_parachute_drag_factor(soe, drag_factor_value):
     soe['Parachute']['Drag Factor Cd*S [m2]'] = drag_factor_value
     return soe
+def get_parachute_open_time(soe):
+    return soe.get('Parachute').get('Open Time [s]')
+def set_parachute_open_time(soe, time):
+    soe['Parachute']['Open Time [s]'] = time
+    return soe
+
 def set_secondary_parachute_drag_factor(soe, drag_factor_value):
     soe['Secondary Parachute']['Drag Factor Cd*S [m2]'] = drag_factor_value
+    return soe
+def get_secondary_parachute_open_time(soe):
+    return soe.get('Secondary Parachute').get('Open Time [s]')
+def set_secondary_parachute_open_time(soe, time):
+    soe['Secondary Parachute']['Open Time [s]'] = time
     return soe
 
 
@@ -336,7 +362,7 @@ def copy_config_files(solver_config, dst_dir):
 
         # from rocket config
         rocket_param = get_rocket_param(stage_config)
-        _file_copy_by_param(rocket_param, 'Enable Program Attitude', 'Program Attitude File', 'Program Attitude File Path', dst_dir)
+        _file_copy_by_param(rocket_param, 'Enable Program Attitude', 'Program Attitude', 'File Path', dst_dir)
         _file_copy_by_param(rocket_param, 'Enable X-C.G. File', 'X-C.G. File', 'X-C.G. File Path', dst_dir)
         _file_copy_by_param(rocket_param, 'Enable M.I. File', 'M.I. File', 'M.I. File Path', dst_dir)
         _file_copy_by_param(rocket_param, 'Enable X-C.P. File', 'X-C.P. File', 'X-C.P. File Path', dst_dir)

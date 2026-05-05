@@ -1,0 +1,17 @@
+{
+    "Nozzle Exit Diameter [mm]": 150.0,
+    "Enable Thrust File": true,
+    "Thrust File": {
+        "Thrust at vacuum File Path": "thrust_mdot_p.csv"
+    },
+    "Constant Thrust": {
+        "Thrust at vacuum [N]": 8000.0,
+        "Propellant Mass Flow Rate [kg/s]": 1.67,
+        "Burn Duration [sec]": 15.0
+    },
+    "Enable Engine Miss Alignment": false,
+    "Engine Miss-Alignment": {
+        "y-Axis Angle [deg]": 0.0,
+        "z-Axis Angle [deg]": 0.0
+    }
+}
