@@ -151,11 +151,14 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
         winds_dir = os.path.splitext(os.path.basename(zipfile_path))[0]
         wind_files = os.listdir(work_dir+'/'+winds_dir)
         if case_count > len(wind_files):
+            extra_files = []
             for i in range(case_count - len(wind_files)):
-                wind_file = wind_files[np.random.randint(0, len(wind_files))]
-                shutil.copy(work_dir+'/'+winds_dir+'/'+wind_file,
-                            work_dir+'/'+winds_dir+'/'+str(i)+'_wind.csv')
-        wind_files = os.listdir(work_dir+'/'+winds_dir)
+                src = wind_files[np.random.randint(0, len(wind_files))]
+                new_name = f'extra_{i}_wind.csv'
+                shutil.copy(os.path.join(work_dir, winds_dir, src),
+                            os.path.join(work_dir, winds_dir, new_name))
+                extra_files.append(new_name)
+            wind_files = wind_files + extra_files
         np.random.shuffle(wind_files)
 
     # ---- CA ---------------------------------------------------------
@@ -254,7 +257,7 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
         samples[0] = mean
         scalar_samples[name] = (samples, cfg_key, setter)
 
-    montecarlo_case_list = []
+    montecarlo_case_list = [None] * case_count
 
     def __run(case_num):
         solver_config_case = deepcopy(solver_config)
@@ -382,8 +385,7 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
         with open(work_dir+'/'+calc_dir+'/'+solver_config_file_name, 'w') as f:
             json.dump(solver_config_case, f, indent=4)
 
-        case = MontecarloCaseConfig(case_num, solver_config_file_name)
-        montecarlo_case_list.append(case)
+        montecarlo_case_list[case_num] = MontecarloCaseConfig(case_num, solver_config_file_name)
 
     future_list = []
     with futures.ThreadPoolExecutor(max_workers=6) as executor:

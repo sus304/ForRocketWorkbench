@@ -343,8 +343,7 @@ def _file_copy_by_param(param, enable_item, file_block_item, path_item, dst_dir)
 
 def copy_config_files(solver_config, dst_dir):
     if not os.path.exists(dst_dir):
-        print('Error! Not found destination directory')
-        exit()
+        raise FileNotFoundError(f'Destination directory not found: {dst_dir}')
 
     for i in range(get_stage_count(solver_config)):
         # from solver config

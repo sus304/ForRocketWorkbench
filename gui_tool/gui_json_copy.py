@@ -6,11 +6,13 @@ def auto_suggest_jsons_path(solver_config_json_path):
     '''
     solver.jsonと同じディレクトリで他のjsonファイルパスを生成する
     '''
-    solver_config = json.load(open(solver_config_json_path, mode='r'))
+    with open(solver_config_json_path) as f:
+        solver_config = json.load(f)
     configs_dir = os.path.dirname(solver_config_json_path) + '/'
 
     stage_config_path = configs_dir + solver_config.get('Stage1 Config File List')
-    stage_config = json.load(open(stage_config_path, mode='r'))
+    with open(stage_config_path) as f:
+        stage_config = json.load(f)
 
     rocket_param_path = configs_dir + stage_config.get('Rocket Configuration File Path')
     engine_param_path = configs_dir + stage_config.get('Engine Configuration File Path')
@@ -19,7 +21,8 @@ def auto_suggest_jsons_path(solver_config_json_path):
 
 
 def _file_copy_by_param_file(param_path, enable_item, file_block_item, path_item, work_dir):
-    param = json.load(open(param_path, mode='r'))
+    with open(param_path) as f:
+        param = json.load(f)
     if param.get(enable_item):
         path = os.path.dirname(param_path) + '/' + param.get(file_block_item).get(path_item)
         shutil.copy2(path, work_dir+'/')
@@ -38,7 +41,8 @@ def import_jsons(work_dir,
     shutil.copy2(engine_param_json_path, work_dir)
     shutil.copy2(soe_json_path, work_dir)
 
-    solver_config = json.load(open(solver_config_json_path, mode='r'))
+    with open(solver_config_json_path) as f:
+        solver_config = json.load(f)
     if solver_config.get('Wind Condition').get('Enable Wind'):
         path = os.path.dirname(solver_config_json_path) + '/' + solver_config.get('Wind Condition').get('Wind File Path')
         shutil.copy2(path, work_dir+'/')
@@ -72,7 +76,8 @@ def import_montecarlo_json(work_dir, montecarlo_config_json_path):
     shutil.copy2(montecarlo_config_json_path, work_dir)
     base_dir = os.path.dirname(montecarlo_config_json_path) + '/'
 
-    mc_config = json.load(open(montecarlo_config_json_path, mode='r'))
+    with open(montecarlo_config_json_path) as f:
+        mc_config = json.load(f)
     if mc_config.get('Error Parameters').get('Wind').get('Enable'):
         shutil.copy2(base_dir+mc_config.get('Error Parameters').get('Wind').get('Base Wind File Path'), work_dir)
         shutil.copy2(base_dir+mc_config.get('Error Parameters').get('Wind').get('Estimate Error Wind File Path'), work_dir)
