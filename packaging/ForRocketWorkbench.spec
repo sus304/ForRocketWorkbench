@@ -1,12 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
-
+import os
 
 block_cipher = None
 
+ROOT = os.path.abspath(os.path.join(SPECPATH, '..'))
 
 a = Analysis(
-    ['ForRocketWorkbench.py'],
-    pathex=[],
+    [os.path.join(ROOT, 'ForRocketWorkbench.py')],
+    pathex=[ROOT],
     binaries=[],
     datas=[],
     hiddenimports=[],
@@ -41,5 +42,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='forrocket_icon.ico',
+    icon=os.path.join(ROOT, 'forrocket_icon.ico'),
 )
