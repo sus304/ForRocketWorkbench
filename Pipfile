@@ -15,5 +15,9 @@ psutil = "*"
 pyinstaller = "*"
 requests = "*"
 semantic-version = "*"
+nicegui = ">=1.4"
+sqlalchemy = ">=2.0"
 
 [dev-packages]
+pytest = "*"
+pytest-mock = "*"

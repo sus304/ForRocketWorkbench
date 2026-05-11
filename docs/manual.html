@@ -1,0 +1,1651 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ForRocket Workbench — 操作マニュアル</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --card: #0f3460;
+    --accent: #e94560;
+    --blue: #4fc3f7;
+    --green: #66bb6a;
+    --orange: #ffa726;
+    --purple: #ab47bc;
+    --text: #eceff1;
+    --text-muted: #90a4ae;
+    --border: #1e3a5f;
+    --code-bg: #0d1b2a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+  }
+
+  .layout {
+    display: flex;
+    min-height: 100vh;
+  }
+
+  .toc {
+    width: 260px;
+    min-width: 260px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 32px 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+
+  .toc-logo {
+    padding: 0 24px 24px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  .toc-logo .app-name {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--blue);
+  }
+
+  .toc-logo .app-sub {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .toc-section {
+    padding: 4px 24px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-top: 16px;
+    margin-bottom: 4px;
+  }
+
+  .toc a {
+    display: block;
+    padding: 6px 24px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 0.875rem;
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+  }
+
+  .toc a:hover {
+    color: var(--text);
+    background: rgba(79, 195, 247, 0.08);
+    border-left-color: var(--blue);
+  }
+
+  .content {
+    flex: 1;
+    max-width: 900px;
+    padding: 48px 56px;
+  }
+
+  section {
+    margin-bottom: 64px;
+    scroll-margin-top: 24px;
+  }
+
+  h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--blue);
+    margin-bottom: 20px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 24px 0 10px;
+  }
+
+  p {
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+
+  .hero {
+    background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 40px;
+    margin-bottom: 48px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -40px;
+    right: -40px;
+    width: 200px;
+    height: 200px;
+    background: radial-gradient(circle, rgba(79,195,247,0.15) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+
+  .hero h1 {
+    font-size: 2.2rem;
+    margin-bottom: 12px;
+  }
+
+  .hero p {
+    font-size: 1rem;
+    max-width: 560px;
+    color: #b0bec5;
+  }
+
+  .version-badge {
+    display: inline-block;
+    background: rgba(79, 195, 247, 0.15);
+    color: var(--blue);
+    border: 1px solid rgba(79, 195, 247, 0.3);
+    border-radius: 20px;
+    padding: 2px 12px;
+    font-size: 0.75rem;
+    margin-bottom: 16px;
+  }
+
+  .url-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-family: monospace;
+    font-size: 0.9rem;
+    color: var(--blue);
+    margin: 8px 0 16px;
+  }
+
+  .url-chip .method {
+    background: rgba(79, 195, 247, 0.15);
+    color: var(--blue);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .screen {
+    background: #121212;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 20px 0 28px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+
+  .screen-bar {
+    background: #1e1e1e;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid #333;
+  }
+
+  .screen-dot { width: 12px; height: 12px; border-radius: 50%; }
+  .screen-dot.red    { background: #ff5f57; }
+  .screen-dot.yellow { background: #febc2e; }
+  .screen-dot.green  { background: #28c840; }
+
+  .screen-url {
+    flex: 1;
+    background: #2a2a2a;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-size: 0.75rem;
+    color: #aaa;
+    font-family: monospace;
+    margin: 0 8px;
+  }
+
+  .screen-body {
+    padding: 0;
+    min-height: 160px;
+  }
+
+  .app-header {
+    background: #1565c0;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .app-header .brand {
+    font-weight: 700;
+    font-size: 0.95rem;
+  }
+
+  .nav-link {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.8);
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .nav-link.active {
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+  }
+
+  .mock-dashboard {
+    display: flex;
+    height: 240px;
+  }
+
+  .mock-sidebar {
+    width: 180px;
+    background: #1a237e;
+    padding: 16px 12px;
+    flex-shrink: 0;
+  }
+
+  .mock-sidebar .sidebar-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #7986cb;
+    margin-bottom: 10px;
+  }
+
+  .mock-proj-btn {
+    background: rgba(255,255,255,0.08);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    color: #e3f2fd;
+    margin-bottom: 4px;
+  }
+
+  .mock-new-btn {
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.7);
+    margin-top: 12px;
+    text-align: center;
+  }
+
+  .mock-main {
+    flex: 1;
+    padding: 16px;
+    overflow: hidden;
+  }
+
+  .mock-table-row {
+    display: flex;
+    gap: 8px;
+    padding: 6px 8px;
+    font-size: 0.72rem;
+    color: #b0bec5;
+    border-bottom: 1px solid #1e3a5f;
+    align-items: center;
+  }
+
+  .mock-table-row.header {
+    color: #78909c;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .mock-table-row > div:nth-child(1) { width: 120px; }
+  .mock-table-row > div:nth-child(2) { width: 80px; }
+  .mock-table-row > div:nth-child(3) { width: 100px; }
+  .mock-table-row > div:nth-child(4) { width: 100px; }
+  .mock-table-row > div:nth-child(5) { width: 80px; }
+  .mock-table-row > div:nth-child(6) { flex: 1; }
+
+  .badge {
+    display: inline-block;
+    border-radius: 4px;
+    padding: 1px 8px;
+    font-size: 0.68rem;
+    font-weight: 600;
+  }
+  .badge.blue     { background: rgba(33,150,243,0.25);  color: #64b5f6; }
+  .badge.green    { background: rgba(76,175,80,0.25);   color: #81c784; }
+  .badge.purple   { background: rgba(156,39,176,0.25);  color: #ce93d8; }
+  .badge.orange   { background: rgba(255,152,0,0.25);   color: #ffb74d; }
+  .badge.positive { background: rgba(76,175,80,0.25);   color: #81c784; }
+  .badge.negative { background: rgba(244,67,54,0.25);   color: #ef9a9a; }
+  .badge.warning  { background: rgba(255,152,0,0.25);   color: #ffb74d; }
+  .badge.grey     { background: rgba(144,164,174,0.15); color: #90a4ae; }
+
+  .mock-calc-layout {
+    display: flex;
+    padding: 0;
+    min-height: 280px;
+  }
+
+  .mock-left-pane {
+    width: 260px;
+    flex-shrink: 0;
+    padding: 14px;
+    border-right: 1px solid #1e3a5f;
+  }
+
+  .mock-right-pane {
+    flex: 1;
+    padding: 14px;
+  }
+
+  .form-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+    align-items: flex-start;
+  }
+
+  .mock-select {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 0.78rem;
+    color: #e0e0e0;
+    min-width: 200px;
+  }
+
+  .mock-radio-group {
+    display: flex;
+    gap: 16px;
+  }
+
+  .mock-radio {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    color: #b0bec5;
+  }
+
+  .mock-radio-dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid #555;
+  }
+
+  .mock-radio-dot.selected {
+    border-color: #1976d2;
+    background: #1976d2;
+    box-shadow: 0 0 0 3px rgba(25,118,210,0.3);
+  }
+
+  .mock-progress-bar {
+    height: 6px;
+    background: #1e3a5f;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 6px;
+  }
+
+  .mock-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #1976d2, #42a5f5);
+    border-radius: 3px;
+  }
+
+  .mock-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 4px;
+    padding: 7px 16px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .mock-btn.primary  { background: #1976d2; color: #fff; }
+  .mock-btn.danger   { background: transparent; color: #ef5350; border: 1px solid #ef5350; }
+  .mock-btn.positive { background: transparent; color: #66bb6a; border: none; }
+  .mock-btn.flat     { background: transparent; color: #90a4ae; border: none; }
+
+  .mock-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    padding: 14px;
+    background: #1a1a2e;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    border: 1px solid #1e3a5f;
+  }
+
+  .meta-item .label {
+    font-size: 0.65rem;
+    color: #607d8b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .meta-item .value {
+    font-size: 0.82rem;
+    color: #e0e0e0;
+    font-weight: 500;
+    margin-top: 2px;
+  }
+
+  .mock-input {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 0.78rem;
+    color: #e0e0e0;
+    width: 100%;
+    margin-bottom: 8px;
+  }
+
+  .mock-textarea {
+    background: #0d1b2a;
+    border: 1px solid #1e3a5f;
+    border-radius: 4px;
+    padding: 10px;
+    font-family: monospace;
+    font-size: 0.72rem;
+    color: #80cbc4;
+    width: 100%;
+    min-height: 80px;
+    line-height: 1.5;
+  }
+
+  .mock-tab-bar {
+    display: flex;
+    border-bottom: 1px solid #333;
+    margin-bottom: 12px;
+  }
+
+  .mock-tab {
+    padding: 8px 16px;
+    font-size: 0.78rem;
+    color: #90a4ae;
+    cursor: pointer;
+  }
+
+  .mock-tab.active {
+    color: #42a5f5;
+    border-bottom: 2px solid #42a5f5;
+  }
+
+  .file-list {
+    background: #0d1b2a;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 8px 0;
+  }
+
+  .file-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 0.78rem;
+    font-family: monospace;
+  }
+
+  .file-item .icon { font-weight: 700; }
+  .file-item.ok  .icon { color: var(--green); }
+  .file-item.ng  .icon { color: var(--accent); }
+  .file-item.opt .icon { color: var(--text-muted); }
+
+  .callout {
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0;
+    display: flex;
+    gap: 12px;
+  }
+
+  .callout.info {
+    background: rgba(79, 195, 247, 0.08);
+    border-left: 4px solid var(--blue);
+  }
+
+  .callout.warning {
+    background: rgba(255, 167, 38, 0.08);
+    border-left: 4px solid var(--orange);
+  }
+
+  .callout.tip {
+    background: rgba(102, 187, 106, 0.08);
+    border-left: 4px solid var(--green);
+  }
+
+  .callout-icon { font-size: 1.2rem; flex-shrink: 0; padding-top: 1px; }
+
+  .callout p {
+    margin: 0;
+    font-size: 0.875rem;
+  }
+
+  .callout p + p { margin-top: 6px; }
+
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin: 20px 0;
+  }
+
+  .feature-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+
+  .feature-card .icon {
+    font-size: 1.6rem;
+    margin-bottom: 10px;
+  }
+
+  .feature-card h4 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+
+  .feature-card p {
+    font-size: 0.82rem;
+    margin: 0;
+  }
+
+  .steps {
+    counter-reset: step-counter;
+    list-style: none;
+    margin: 16px 0;
+  }
+
+  .steps li {
+    counter-increment: step-counter;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 16px;
+  }
+
+  .steps li::before {
+    content: counter(step-counter);
+    background: var(--blue);
+    color: #0d1b2a;
+    font-weight: 700;
+    font-size: 0.75rem;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .steps li .step-text {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  .steps li .step-text strong {
+    color: var(--text);
+  }
+
+  .mode-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.85rem;
+  }
+
+  .mode-table th {
+    background: var(--card);
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text);
+    border-bottom: 2px solid var(--border);
+  }
+
+  .mode-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted);
+    vertical-align: top;
+  }
+
+  .mode-table tr:last-child td { border-bottom: none; }
+
+  .mode-table tr:hover td {
+    background: rgba(255,255,255,0.02);
+  }
+
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin: 16px 0;
+  }
+
+  .status-card {
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 0.82rem;
+  }
+
+  .status-card .s-name { font-weight: 700; margin-bottom: 4px; }
+  .status-card .s-desc { color: #90a4ae; font-size: 0.75rem; }
+
+  .status-card.running   { background: rgba(25,118,210,0.15);  border-left: 3px solid #1976d2; }
+  .status-card.completed { background: rgba(76,175,80,0.15);   border-left: 3px solid #388e3c; }
+  .status-card.failed    { background: rgba(244,67,54,0.15);   border-left: 3px solid #d32f2f; }
+  .status-card.cancelled { background: rgba(255,152,0,0.15);   border-left: 3px solid #f57c00; }
+  .status-card.cancelling{ background: rgba(255,152,0,0.1);    border-left: 3px solid #ef6c00; }
+  .status-card.idle      { background: rgba(144,164,174,0.1);  border-left: 3px solid #607d8b; }
+
+  .workflow {
+    display: flex;
+    align-items: center;
+    margin: 20px 0;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .wf-step {
+    background: var(--card);
+    border-radius: 6px;
+    padding: 10px 16px;
+    font-size: 0.8rem;
+    text-align: center;
+    border: 1px solid var(--border);
+    min-width: 110px;
+  }
+
+  .wf-step .wf-icon  { font-size: 1.3rem; margin-bottom: 4px; }
+  .wf-step .wf-label { color: var(--text-muted); }
+
+  .wf-arrow {
+    color: var(--text-muted);
+    font-size: 1.2rem;
+    padding: 0 4px;
+  }
+
+  code {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: monospace;
+    font-size: 0.85em;
+    color: var(--blue);
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    font-family: monospace;
+    font-size: 0.82rem;
+    color: #80cbc4;
+    overflow-x: auto;
+    margin: 12px 0;
+    line-height: 1.6;
+  }
+
+  .shortcut-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+    margin: 12px 0;
+  }
+
+  .shortcut-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+
+  .shortcut-table td:first-child {
+    color: var(--text);
+    font-weight: 500;
+    width: 45%;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 48px 0;
+  }
+
+  .section-number {
+    background: var(--blue);
+    color: #0d1b2a;
+    font-weight: 700;
+    font-size: 0.75rem;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- ===== TOC Sidebar ===== -->
+  <nav class="toc">
+    <div class="toc-logo">
+      <div class="app-name">🚀 ForRocket Workbench</div>
+      <div class="app-sub">操作マニュアル</div>
+    </div>
+
+    <div class="toc-section">はじめに</div>
+    <a href="#overview">概要</a>
+    <a href="#quickstart">クイックスタート</a>
+
+    <div class="toc-section">各ページ</div>
+    <a href="#dashboard">Dashboard（ホーム）</a>
+    <a href="#calculate">Calculate（計算・設定編集）</a>
+    <a href="#result">Result（結果表示）</a>
+
+    <div class="toc-section">補助ツール</div>
+    <a href="#tools">Tools ハブ</a>
+    <a href="#tools-barrowman">Barrowman CP 計算機</a>
+    <a href="#tools-mass">質量・慣性計算機</a>
+    <a href="#tools-engine">ハイブリッドエンジン</a>
+
+    <div class="toc-section">リファレンス</div>
+    <a href="#modes">計算モード一覧</a>
+    <a href="#files">設定ファイル一覧</a>
+    <a href="#status">ジョブステータス</a>
+    <a href="#faq">FAQ</a>
+  </nav>
+
+  <!-- ===== Main Content ===== -->
+  <main class="content">
+
+    <!-- Hero -->
+    <div class="hero">
+      <div class="version-badge">Web GUI (NiceGUI)</div>
+      <h1>ForRocket Workbench</h1>
+      <p>ロケット弾道計算ツール ForRocket のブラウザベース GUI。プロジェクト管理・計算実行・結果確認・設定編集をひとつのインターフェースで行えます。</p>
+    </div>
+
+    <!-- ===== 概要 ===== -->
+    <section id="overview">
+      <h2><span class="section-number">1</span> 概要</h2>
+
+      <p>ForRocket Workbench はローカルで動作する Web アプリです。ブラウザを使って ForRocket ソルバーを操作します。計算履歴の管理や結果グラフの閲覧に加え、全設定ファイルをフォーム UI で編集できます。</p>
+
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="icon">📊</div>
+          <h4>計算履歴管理</h4>
+          <p>全ての計算実行を SQLite DB に記録。日時・モード・ステータスで一覧表示します。</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">⚙️</div>
+          <h4>4 つの計算モード</h4>
+          <p>Trajectory・Area・MonteCarlo・Sensitivity の各計算をワンクリックで実行できます。</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">✏️</div>
+          <h4>全ファイルのフォーム編集</h4>
+          <p>全 8 設定ファイルをフォーム UI で編集できます。JSON 直接編集モードも提供します。</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🖼️</div>
+          <h4>インタラクティブ結果表示</h4>
+          <p>PNG グラフ・ECharts チャート・Leaflet マップで計算結果を詳細に確認できます。</p>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <div class="callout-icon">ℹ️</div>
+        <div>
+          <p>アプリは <code>python main.py</code> で起動し、<strong>http://localhost:8080</strong> でアクセスします。</p>
+          <p>計算はバックグラウンドスレッドで実行されるため、実行中もブラウザ操作は継続できます。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== クイックスタート ===== -->
+    <section id="quickstart">
+      <h2><span class="section-number">2</span> クイックスタート</h2>
+
+      <h3>起動方法</h3>
+      <pre>cd ForRocketWorkbench
+python main.py</pre>
+
+      <p>ブラウザが自動で開かない場合は <code>http://localhost:8080</code> を手動で開いてください。</p>
+
+      <h3>初回の計算実行の流れ</h3>
+
+      <div class="workflow">
+        <div class="wf-step"><div class="wf-icon">📁</div><div class="wf-label">プロジェクト<br>作成</div></div>
+        <div class="wf-arrow">›</div>
+        <div class="wf-step"><div class="wf-icon">✏️</div><div class="wf-label">設定ファイル<br>編集</div></div>
+        <div class="wf-arrow">›</div>
+        <div class="wf-step"><div class="wf-icon">▶️</div><div class="wf-label">計算<br>実行</div></div>
+        <div class="wf-arrow">›</div>
+        <div class="wf-step"><div class="wf-icon">📈</div><div class="wf-label">結果<br>確認</div></div>
+      </div>
+
+      <ol class="steps">
+        <li><div class="step-text"><strong>Calculate ページへ移動</strong>し、「+ New Project」ボタンでプロジェクト名を入力してプロジェクトを作成します。</div></li>
+        <li><div class="step-text"><strong>プロジェクトフォルダ</strong>（<code>projects/&lt;name&gt;/</code>）に必要な JSON ファイルを配置します。最低限 <code>config_solver.json</code> と各パラメータファイルが必要です。</div></li>
+        <li><div class="step-text"><strong>右ペインのフォームエディタ</strong>でパラメータを確認・調整します。ファイルを選択すると自動的にフォームが表示されます。</div></li>
+        <li><div class="step-text"><strong>左ペインで計算モードを選択</strong>し「Run Calculation」を押します。</div></li>
+        <li><div class="step-text">計算完了後、自動的に表示される<strong>「View Results」ボタン</strong>または Dashboard から結果ページを開きます。</div></li>
+      </ol>
+    </section>
+
+    <hr>
+
+    <!-- ===== Dashboard ===== -->
+    <section id="dashboard">
+      <h2><span class="section-number">3</span> Dashboard（ホーム）</h2>
+
+      <div class="url-chip">
+        <span class="method">GET</span>
+        http://localhost:8080<strong>/</strong>
+      </div>
+
+      <p>アプリのトップページです。全計算履歴の一覧と、プロジェクトへのクイックアクセスサイドバーを表示します。</p>
+
+      <div class="screen">
+        <div class="screen-bar">
+          <div class="screen-dot red"></div>
+          <div class="screen-dot yellow"></div>
+          <div class="screen-dot green"></div>
+          <div class="screen-url">http://localhost:8080/</div>
+        </div>
+        <div class="screen-body">
+          <div class="app-header">
+            <span class="brand">🚀 ForRocket Workbench</span>
+            <span class="nav-link active">Dashboard</span>
+            <span class="nav-link">Calculate</span>
+            <span class="nav-link">Tools ▾</span>
+          </div>
+          <div class="mock-dashboard">
+            <div class="mock-sidebar">
+              <div class="sidebar-title">Projects</div>
+              <div class="mock-proj-btn">my_rocket_v1</div>
+              <div class="mock-proj-btn">test_model</div>
+              <div class="mock-new-btn">+ New Project</div>
+            </div>
+            <div class="mock-main">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <span style="font-size:0.85rem; font-weight:600;">Calculation History</span>
+                <span class="mock-btn primary" style="font-size:0.7rem; padding:4px 10px;">+ New Calculation</span>
+              </div>
+              <div class="mock-table-row header">
+                <div>Date/Time</div><div>Mode</div><div>Model ID</div><div>Project</div><div>Status</div><div>Memo</div>
+              </div>
+              <div class="mock-table-row">
+                <div>2026-05-10 14:32</div>
+                <div><span class="badge blue">trajectory</span></div>
+                <div>ROCKET_A</div>
+                <div>my_rocket_v1</div>
+                <div><span class="badge positive">completed</span></div>
+                <div>初回確認</div>
+              </div>
+              <div class="mock-table-row">
+                <div>2026-05-10 13:11</div>
+                <div><span class="badge orange">sensitivity</span></div>
+                <div>ROCKET_A</div>
+                <div>my_rocket_v1</div>
+                <div><span class="badge positive">completed</span></div>
+                <div></div>
+              </div>
+              <div class="mock-table-row">
+                <div>2026-05-09 17:05</div>
+                <div><span class="badge purple">montecarlo</span></div>
+                <div>ROCKET_B</div>
+                <div>test_model</div>
+                <div><span class="badge negative">failed</span></div>
+                <div>設定ミス</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3>サイドバー — Projects</h3>
+      <p>スキャン済みのプロジェクト一覧を表示します。プロジェクト名をクリックすると、そのプロジェクトが選択された状態で Calculate ページへ移動します。「+ New Project」は Calculate ページでプロジェクト作成ダイアログを開きます。</p>
+
+      <h3>計算履歴テーブル</h3>
+      <p>最新 100 件の計算を新しい順に表示します。行をクリックすると Result ページへ移動します。</p>
+
+      <table class="mode-table">
+        <tr><th>列</th><th>内容</th></tr>
+        <tr><td>Date/Time</td><td>計算開始日時（YYYY-MM-DD HH:MM 形式）</td></tr>
+        <tr><td>Mode</td><td>計算モード（バッジで色分け）</td></tr>
+        <tr><td>Model ID</td><td>config_solver.json の「Model ID」フィールド</td></tr>
+        <tr><td>Project</td><td>プロジェクト名</td></tr>
+        <tr><td>Status</td><td>実行ステータス（バッジで色分け）</td></tr>
+        <tr><td>Memo</td><td>Result ページで記録したメモ</td></tr>
+      </table>
+
+      <div class="callout tip">
+        <div class="callout-icon">💡</div>
+        <div><p>「+ New Calculation」ボタンからも Calculate ページへ移動できます。</p></div>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ===== Calculate ===== -->
+    <section id="calculate">
+      <h2><span class="section-number">4</span> Calculate（計算実行・設定編集）</h2>
+
+      <div class="url-chip">
+        <span class="method">GET</span>
+        http://localhost:8080<strong>/calculate</strong>
+      </div>
+
+      <p>計算実行と設定ファイル編集を一つのページで行います。画面は左右二列に分かれており、左ペインで計算を操作し、右ペインで設定ファイルを編集します。</p>
+
+      <div class="screen">
+        <div class="screen-bar">
+          <div class="screen-dot red"></div>
+          <div class="screen-dot yellow"></div>
+          <div class="screen-dot green"></div>
+          <div class="screen-url">http://localhost:8080/calculate</div>
+        </div>
+        <div class="screen-body">
+          <div class="app-header">
+            <span class="brand">🚀 ForRocket Workbench</span>
+            <span class="nav-link">Dashboard</span>
+            <span class="nav-link active">Calculate</span>
+            <span class="nav-link">Tools ▾</span>
+          </div>
+          <div class="mock-calc-layout">
+            <div class="mock-left-pane">
+              <div style="font-size:0.72rem; color:#78909c; margin-bottom:4px;">PROJECT</div>
+              <div class="mock-select" style="min-width:100%; margin-bottom:10px;">my_rocket_v1 ▾</div>
+              <div style="font-size:0.72rem; color:#78909c; margin-bottom:4px;">CALCULATION MODE</div>
+              <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:12px;">
+                <div class="mock-radio"><div class="mock-radio-dot selected"></div> Trajectory</div>
+                <div class="mock-radio"><div class="mock-radio-dot"></div> Area</div>
+                <div class="mock-radio"><div class="mock-radio-dot"></div> MonteCarlo</div>
+                <div class="mock-radio"><div class="mock-radio-dot"></div> Sensitivity</div>
+              </div>
+              <div style="font-size:0.72rem; color:#78909c; margin-bottom:4px;">PROJECT FILES</div>
+              <div class="file-list" style="font-size:0.7rem;">
+                <div class="file-item ok"><span class="icon">✓</span> config_solver.json</div>
+                <div class="file-item ok"><span class="icon">✓</span> param_rocket.json</div>
+                <div class="file-item ok"><span class="icon">✓</span> param_engine.json</div>
+              </div>
+              <span class="mock-btn primary" style="margin-top:10px; font-size:0.72rem;">▶ Run Calculation</span>
+            </div>
+            <div class="mock-right-pane">
+              <div style="font-size:0.72rem; color:#78909c; margin-bottom:4px;">FILE</div>
+              <div class="mock-select" style="min-width:100%; margin-bottom:8px;">config_solver.json ▾</div>
+              <div class="mock-tab-bar">
+                <div class="mock-tab active">Form</div>
+                <div class="mock-tab">JSON</div>
+              </div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <div>
+                  <div style="font-size:0.68rem; color:#546e7a; margin-bottom:2px;">Basic</div>
+                  <div class="mock-input" style="margin-bottom:4px;">Model ID: ROCKET_A</div>
+                  <div class="mock-input">DateTime: 2026/05/10...</div>
+                </div>
+                <div>
+                  <div style="font-size:0.68rem; color:#546e7a; margin-bottom:2px;">Launch</div>
+                  <div class="mock-input" style="margin-bottom:4px;">Lat: 31.25 deg</div>
+                  <div class="mock-input">Elev: 85.0 deg</div>
+                </div>
+              </div>
+              <span class="mock-btn primary" style="margin-top:6px; font-size:0.72rem;">💾 Save</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3>左ペイン — 計算実行</h3>
+
+      <ol class="steps">
+        <li><div class="step-text"><strong>プロジェクトを選択</strong>。ドロップダウンに <code>projects/</code> フォルダ内のプロジェクトが表示されます。</div></li>
+        <li><div class="step-text"><strong>計算モードを選択</strong>。ラジオボタンで 4 種類のモードから選びます。</div></li>
+        <li><div class="step-text">必要に応じて <strong>「Use max CPU threads」にチェック</strong>を入れます（Area / MonteCarlo / Sensitivity で有効）。</div></li>
+        <li><div class="step-text"><strong>Project Files で必要ファイルを確認</strong>。✓ が全て揃っていれば実行可能です。</div></li>
+        <li><div class="step-text"><strong>「Run Calculation」を押す</strong>。進捗バーとステップラベルが更新されます。</div></li>
+        <li><div class="step-text">完了後、<strong>「View Results」ボタン</strong>が自動表示されます。クリックすると Result ページへ移動します。</div></li>
+      </ol>
+
+      <h3>進捗ステップ</h3>
+      <table class="mode-table">
+        <tr><th>Step</th><th>ラベル</th><th>内容</th></tr>
+        <tr><td>1 / 4</td><td>Preparing files...</td><td>実行準備・パス解決</td></tr>
+        <tr><td>2 / 4</td><td>Running solver...</td><td>runner_tool によるソルバー実行</td></tr>
+        <tr><td>3 / 4</td><td>Post processing...</td><td>post_tool によるグラフ生成・CSV 出力</td></tr>
+        <tr><td>4 / 4</td><td>Saving results...</td><td>DB への結果保存</td></tr>
+      </table>
+
+      <h3>キャンセル</h3>
+      <p>実行中に表示される「Cancel」ボタンを押すと、実行中のサブプロセスを終了させます。ステータスは <code>cancelling</code> → <code>cancelled</code> に遷移します。</p>
+
+      <h3>右ペイン — 設定ファイルフォームエディタ</h3>
+      <p>プロジェクト内の設定ファイルをドロップダウンで選択すると、Form タブと JSON タブが表示されます。全 8 ファイルにフォーム UI が用意されています。</p>
+
+      <table class="mode-table">
+        <tr><th>ファイル</th><th>フォームの主要項目</th></tr>
+        <tr>
+          <td><code>config_solver.json</code></td>
+          <td>Model ID・Launch DateTime・打上げ条件（緯度/経度/高度/方位角/仰角）・Wind（Enable/ファイルパス）・初速・初期角速度</td>
+        </tr>
+        <tr>
+          <td><code>param_list_stage1.json</code></td>
+          <td>ステージ数・各ステージのパラメータファイルパス</td>
+        </tr>
+        <tr>
+          <td><code>param_rocket.json</code></td>
+          <td>機体外形・質量・各空力係数（定数値 or ファイル指定トグル）・CG/CP 位置</td>
+        </tr>
+        <tr>
+          <td><code>param_engine.json</code></td>
+          <td>ノズル径・推力（定数 or ファイル）・質量流量・燃焼時間・エンジン軸ずれ</td>
+        </tr>
+        <tr>
+          <td><code>sequence_of_event.json</code></td>
+          <td>各イベント（点火・レール離脱・段分離・パラシュート展開等）の Enable + 時刻</td>
+        </tr>
+        <tr>
+          <td><code>config_area.json</code></td>
+          <td>Law Wind 係数・基準高度、風速範囲（Lo/Hi/Step）、風向範囲（Lo/Hi/Step）。入力変更のたびにケース数をリアルタイム表示。</td>
+        </tr>
+        <tr>
+          <td><code>config_montecarlo.json</code></td>
+          <td>Case Count、22 種類の誤差パラメータ（Enable・Unit・3σLow・3σHigh）。Wind のみ zip ファイルパス入力。</td>
+        </tr>
+        <tr>
+          <td><code>config_sensitivity.json</code></td>
+          <td>計算手法（two_point / linear_fit）、感度パラメータ一覧（パラメータ名・Variation Unit・Variations リスト・Reference Variations リスト）。行の追加・削除可能。</td>
+        </tr>
+      </table>
+
+      <p>「JSON」タブに切り替えると生の JSON テキストを確認・直接編集できます。「Save」でフォームの値を JSON として <code>projects/&lt;name&gt;/</code> に保存、「Reformat」で JSON を再フォーマット（保存なし）。</p>
+
+      <div class="callout info">
+        <div class="callout-icon">ℹ️</div>
+        <div><p>JSON の構文エラーがある状態で Save を押すと、エラーメッセージがトースト通知で表示されます。保存は実行されません。</p></div>
+      </div>
+
+      <h3>プロジェクト作成</h3>
+      <p>「+ New Project」ボタンを押すとダイアログが開きます。プロジェクト名を入力して「Create」を押すと <code>projects/&lt;name&gt;/</code> ディレクトリが作成されます。</p>
+
+      <div class="callout warning">
+        <div class="callout-icon">⚠️</div>
+        <div>
+          <p>プロジェクト作成後、<strong>設定ファイルは手動でフォルダに配置</strong>してください。フォームエディタはファイルの新規作成はせず、既存ファイルの編集のみ行います。</p>
+          <p>同時に実行できる計算は 1 つだけです。既に計算が実行中の場合、Run ボタンを押すと警告が表示されます。</p>
+        </div>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ===== Result ===== -->
+    <section id="result">
+      <h2><span class="section-number">5</span> Result（結果表示）</h2>
+
+      <div class="url-chip">
+        <span class="method">GET</span>
+        http://localhost:8080<strong>/result/{calc_id}</strong>
+      </div>
+
+      <p>個別の計算結果を表示するページです。メタデータの確認・メモの記録・出力グラフの閲覧・結果フォルダのオープンができます。</p>
+
+      <h3>共通セクション</h3>
+      <table class="mode-table">
+        <tr><th>セクション</th><th>内容</th></tr>
+        <tr><td>メタデータカード</td><td>Mode・Project・Model ID・Status・Started・Finished の 6 項目</td></tr>
+        <tr><td>Memo</td><td>テキストエリアに記入し「Save Memo」で DB に保存。Dashboard の一覧にも反映。</td></tr>
+        <tr><td>Result Directory</td><td>結果フォルダのパスと「Open Folder」ボタン（Windows エクスプローラーで開く）</td></tr>
+      </table>
+
+      <h3>Trajectory 結果</h3>
+      <ul>
+        <li><strong>Output Graphs</strong>: 結果フォルダ内の PNG ファイルを 2 列グリッドでブラウザ内表示</li>
+        <li><strong>Leaflet マップ</strong>: 飛翔経路（緯度・経度ポリライン）・発射点マーカー・落下点マーカー</li>
+      </ul>
+
+      <h3>Area 結果</h3>
+      <ul>
+        <li><strong>Output Graphs</strong>: PNG ファイルを 2 列グリッドで表示</li>
+        <li><strong>Leaflet マップ</strong>: 落下エリアエンベロープポリゴン・個別落下点散布・発射点マーカー</li>
+      </ul>
+
+      <h3>MonteCarlo 結果</h3>
+      <ul>
+        <li><strong>統計値カード</strong>: 頂点高度・落下点 East・落下点 North のそれぞれについて mean / std / 3σ を表示</li>
+        <li><strong>ECharts ヒストグラム</strong>: 頂点高度・落下点 East・落下点 North の度数分布チャート</li>
+        <li><strong>ECharts 散布図</strong>: 落下点 East-North 散布図（3σ 楕円オーバーレイ付き）</li>
+        <li><strong>Leaflet マップ</strong>: 全ケース落下点散布・3σ 楕円ポリゴン・発射点マーカー</li>
+      </ul>
+
+      <h3>Sensitivity 結果</h3>
+      <ul>
+        <li><strong>サマリテーブル</strong>: <code>sensitivity_results.csv</code> の内容（パラメータ・基準値・感度係数 [m/unit] / [m/%]・変化幅）</li>
+        <li><strong>Tornado チャート</strong>: <code>sensitivity_tornado.png</code> をブラウザ内表示</li>
+        <li>
+          <strong>Linearity Check（開閉式パネル）</strong>: パラメータごとに ECharts 散布図で線形性を確認
+          <ul>
+            <li><strong>青丸 ●</strong>: Reference Variations 以外の全 Variations 解析点</li>
+            <li><strong>橙菱形 ◆</strong>: Reference Variations の点（感度係数算出に使用した基準点）</li>
+            <li><strong>緑三角 ▲</strong>: ノミナル値の点</li>
+            <li><strong>破線 —</strong>: Reference Low 点を基準とした感度係数による線形近似線</li>
+          </ul>
+          <p>X 軸はパラメータの実際の値（ノミナルを中心に対称スケール）、Y 軸は頂点高度（ノミナルを中心に対称スケール）で表示されます。傾きが実際の解析点に合っているかを視覚的に確認できます。</p>
+        </li>
+      </ul>
+
+      <div class="callout tip">
+        <div class="callout-icon">💡</div>
+        <div><p>Linearity Check で解析点が破線上に乗っていない場合、感度計算で使用したメソッド（two_point / linear_fit）と実際の非線形性の程度を確認してください。</p></div>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ===== 計算モード ===== -->
+    <section id="modes">
+      <h2><span class="section-number">6</span> 計算モード一覧</h2>
+
+      <table class="mode-table">
+        <tr>
+          <th>モード</th>
+          <th>バッジ色</th>
+          <th>概要</th>
+          <th>追加設定ファイル</th>
+        </tr>
+        <tr>
+          <td><span class="badge blue">trajectory</span></td>
+          <td>青</td>
+          <td>単一条件での弾道計算。最も基本的なモード。</td>
+          <td>なし</td>
+        </tr>
+        <tr>
+          <td><span class="badge green">area</span></td>
+          <td>緑</td>
+          <td>複数の打上げ条件（風速・風向の組み合わせ）での着弾点エリア計算。</td>
+          <td><code>config_area.json</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge purple">montecarlo</span></td>
+          <td>紫</td>
+          <td>パラメータにばらつきを与えたモンテカルロシミュレーション。</td>
+          <td><code>config_montecarlo.json</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge orange">sensitivity</span></td>
+          <td>橙</td>
+          <td>各パラメータが頂点高度に与える感度分析（OAT 法）。</td>
+          <td><code>config_sensitivity.json</code></td>
+        </tr>
+      </table>
+
+      <div class="callout info">
+        <div class="callout-icon">ℹ️</div>
+        <div><p>Area・MonteCarlo・Sensitivity モードでは「Use max CPU threads」チェックボックスが有効です。並列計算でコア数をフル活用します。</p></div>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ===== 設定ファイル ===== -->
+    <section id="files">
+      <h2><span class="section-number">7</span> 設定ファイル一覧</h2>
+
+      <p>全ファイルはプロジェクトフォルダ（<code>projects/&lt;project_name&gt;/</code>）に配置します。</p>
+
+      <table class="mode-table">
+        <tr>
+          <th>ファイル名</th>
+          <th>必須モード</th>
+          <th>説明</th>
+        </tr>
+        <tr>
+          <td><code>config_solver.json</code></td>
+          <td>全モード</td>
+          <td>ソルバー基本設定（モデル ID・打上げ条件・風条件など）。フォーム UI で編集可。</td>
+        </tr>
+        <tr>
+          <td><code>param_rocket.json</code></td>
+          <td>全モード</td>
+          <td>ロケット機体パラメータ（外形・質量・空力係数）。フォーム UI で編集可。</td>
+        </tr>
+        <tr>
+          <td><code>param_engine.json</code></td>
+          <td>全モード</td>
+          <td>エンジンパラメータ（推力・質量流量・燃焼時間）。フォーム UI で編集可。</td>
+        </tr>
+        <tr>
+          <td><code>param_list_stage1.json</code></td>
+          <td>全モード</td>
+          <td>ステージ 1 のパラメータファイルリスト。フォーム UI で編集可。</td>
+        </tr>
+        <tr>
+          <td><code>sequence_of_event.json</code></td>
+          <td>全モード</td>
+          <td>イベントシーケンス定義（点火・分離・パラシュート等）。フォーム UI で編集可。</td>
+        </tr>
+        <tr>
+          <td><code>config_area.json</code></td>
+          <td>Area のみ</td>
+          <td>エリア計算の風条件設定（範囲・刻み）。フォーム UI で編集可。</td>
+        </tr>
+        <tr>
+          <td><code>config_montecarlo.json</code></td>
+          <td>MonteCarlo のみ</td>
+          <td>モンテカルロのケース数と各パラメータのばらつき設定（22 項目）。フォーム UI で編集可。</td>
+        </tr>
+        <tr>
+          <td><code>config_sensitivity.json</code></td>
+          <td>Sensitivity のみ</td>
+          <td>感度分析の計算手法・対象パラメータと変化量。フォーム UI で編集可。</td>
+        </tr>
+      </table>
+
+      <p>Calculate ページの「Project Files」パネルで各ファイルの存在確認ができます。</p>
+
+      <div class="file-list">
+        <div class="file-item ok"><span class="icon">✓</span> ファイルが存在する</div>
+        <div class="file-item ng"><span class="icon">✗</span> 必須ファイルが存在しない（計算不可）</div>
+        <div class="file-item opt"><span class="icon">–</span> オプションファイルが存在しない（そのモードでは不要）</div>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ===== ジョブステータス ===== -->
+    <section id="status">
+      <h2><span class="section-number">8</span> ジョブステータス</h2>
+
+      <div class="status-grid">
+        <div class="status-card idle">
+          <div class="s-name">idle</div>
+          <div class="s-desc">待機中。計算は実行されていない。</div>
+        </div>
+        <div class="status-card running">
+          <div class="s-name">running</div>
+          <div class="s-desc">計算実行中。進捗バーが更新される。</div>
+        </div>
+        <div class="status-card cancelling">
+          <div class="s-name">cancelling</div>
+          <div class="s-desc">キャンセル要求済み。プロセス終了待ち。</div>
+        </div>
+        <div class="status-card completed">
+          <div class="s-name">completed</div>
+          <div class="s-desc">正常完了。結果フォルダが生成されている。</div>
+        </div>
+        <div class="status-card failed">
+          <div class="s-name">failed</div>
+          <div class="s-desc">エラー終了。エラーメッセージをトーストで表示。</div>
+        </div>
+        <div class="status-card cancelled">
+          <div class="s-name">cancelled</div>
+          <div class="s-desc">キャンセル完了。結果フォルダは未生成の可能性あり。</div>
+        </div>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ===== Tools Hub ===== -->
+    <section id="tools">
+      <h2><span class="section-number">9</span> Tools — 補助ツール</h2>
+
+      <p>ヘッダーの「Tools ▾」ドロップダウンからアクセスできる補助計算ツール群です。プロジェクト・計算履歴とは独立して動作し、単体で利用できます。</p>
+
+      <div class="url-chip">
+        <span class="method">GET</span>
+        http://localhost:8080<strong>/tools</strong>
+      </div>
+
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="icon">🧮</div>
+          <h4>Barrowman CP Calculator</h4>
+          <p>Barrowman メソッドによる CP 位置・静安定マージン計算。入力変更のたびに即時再計算。</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">⚖️</div>
+          <h4>Mass Budget &amp; Inertia</h4>
+          <p>コンポーネント別の質量・重心・慣性モーメント計算。行の追加/削除が可能。</p>
+        </div>
+        <div class="feature-card">
+          <div class="icon">🔥</div>
+          <h4>Hybrid Engine Performance</h4>
+          <p>定常点解析と燃焼シミュレーション（Thrust/O-F/Pc のチャート）。</p>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <div class="callout-icon">ℹ️</div>
+        <div><p>ツールページはセッション中のみデータを保持します。ページを離れると入力値はリセットされます。</p></div>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ===== Barrowman ===== -->
+    <section id="tools-barrowman">
+      <h2><span class="section-number">10</span> Barrowman CP Calculator</h2>
+
+      <div class="url-chip">
+        <span class="method">GET</span>
+        http://localhost:8080<strong>/tools/barrowman</strong>
+      </div>
+
+      <p>Barrowman (1967) メソッドによる亜音速・軸対称ロケットの空力係数計算ページです。ノーズコーン・フィンセット・ボートテールの組み合わせに対して CNα・XCP・静安定マージンを計算します。</p>
+
+      <div class="screen">
+        <div class="screen-bar">
+          <div class="screen-dot red"></div>
+          <div class="screen-dot yellow"></div>
+          <div class="screen-dot green"></div>
+          <div class="screen-url">http://localhost:8080/tools/barrowman</div>
+        </div>
+        <div class="screen-body" style="padding:14px; display:flex; gap:16px; min-height:220px;">
+          <div style="flex:1;">
+            <div style="font-size:0.7rem; color:#607d8b; margin-bottom:6px;">REFERENCE</div>
+            <div style="display:flex; gap:8px; margin-bottom:10px;">
+              <div class="mock-input" style="width:130px; font-size:0.72rem;">Ref. diam: 150 mm</div>
+              <div class="mock-input" style="width:130px; font-size:0.72rem;">CG: 550 mm (opt)</div>
+            </div>
+            <div style="font-size:0.7rem; color:#607d8b; margin-bottom:4px;">NOSE CONE</div>
+            <div style="display:flex; gap:8px; margin-bottom:10px;">
+              <div class="mock-select" style="width:170px; font-size:0.72rem;">Tangent Ogive ▾</div>
+              <div class="mock-input" style="width:90px; font-size:0.72rem;">400 mm</div>
+            </div>
+            <div style="font-size:0.7rem; color:#607d8b; margin-bottom:4px;">FIN SETS &nbsp;<span style="color:#42a5f5; font-size:0.65rem;">Sets: 1</span></div>
+            <div style="background:#1a2744; border-radius:4px; padding:8px; font-size:0.7rem; color:#b0bec5;">
+              N=4 &nbsp;|&nbsp; Cr=200mm &nbsp;|&nbsp; Ct=100mm &nbsp;|&nbsp; span=150mm &nbsp;|&nbsp; sweep=50mm<br>
+              Body Ø=150mm &nbsp;|&nbsp; Root LE from nose=700mm
+            </div>
+          </div>
+          <div style="width:220px; flex-shrink:0;">
+            <div style="font-size:0.7rem; color:#607d8b; margin-bottom:6px;">RESULTS</div>
+            <div style="font-size:0.72rem; color:#b0bec5; border-bottom:1px solid #1e3a5f; padding-bottom:4px; margin-bottom:4px;">
+              <span style="display:inline-block;width:90px">Component</span>
+              <span style="display:inline-block;width:50px;text-align:right">CNα</span>
+              <span style="display:inline-block;width:60px;text-align:right">XCP[mm]</span>
+            </div>
+            <div style="font-size:0.72rem; color:#e0e0e0; padding:2px 0;">
+              <span style="display:inline-block;width:90px">Nose</span>
+              <span style="display:inline-block;width:50px;text-align:right">2.0000</span>
+              <span style="display:inline-block;width:60px;text-align:right">186.4</span>
+            </div>
+            <div style="font-size:0.72rem; color:#e0e0e0; padding:2px 0;">
+              <span style="display:inline-block;width:90px">Fin Set 1</span>
+              <span style="display:inline-block;width:50px;text-align:right">8.4521</span>
+              <span style="display:inline-block;width:60px;text-align:right">775.3</span>
+            </div>
+            <div style="border-top:1px solid #1e3a5f; margin:6px 0 4px;"></div>
+            <div style="font-size:0.78rem; color:#42a5f5; font-weight:600; margin-bottom:8px;">XCP: 708.6 mm</div>
+            <div style="font-size:0.78rem; color:#42a5f5; font-weight:600;">Total CNα: 10.452</div>
+            <div style="font-size:0.78rem; color:#66bb6a; font-weight:600; margin-top:4px;">SM: 1.06 cal  ✓ Stable</div>
+          </div>
+        </div>
+      </div>
+
+      <h3>入力パラメータ</h3>
+
+      <table class="mode-table">
+        <tr><th>セクション</th><th>パラメータ</th><th>説明</th></tr>
+        <tr>
+          <td>Reference</td>
+          <td>Reference diameter [mm]</td>
+          <td>最大機体直径。CNα の規格化と静安定マージン計算に使用。</td>
+        </tr>
+        <tr>
+          <td>Reference</td>
+          <td>CG from nose tip [mm]</td>
+          <td>重心位置（任意）。入力すると静安定マージンが計算される。</td>
+        </tr>
+        <tr>
+          <td>Nose Cone</td>
+          <td>Shape</td>
+          <td>Conical / Tangent Ogive / Parabolic / Elliptical / Von Kármán (Haack) の5種類。</td>
+        </tr>
+        <tr>
+          <td>Nose Cone</td>
+          <td>Length [mm]</td>
+          <td>ノーズコーン長さ。</td>
+        </tr>
+        <tr>
+          <td>Fin Sets</td>
+          <td>Sets（1〜4）</td>
+          <td>フィンセット数。各セットに独立したパラメータを設定できる。</td>
+        </tr>
+        <tr>
+          <td>Fin Sets</td>
+          <td>N fins / Cr / Ct / Span</td>
+          <td>枚数・ルートコード・チップコード・スパン（機体表面から）。</td>
+        </tr>
+        <tr>
+          <td>Fin Sets</td>
+          <td>LE sweep offset [mm]</td>
+          <td>前縁スイープ量。ルート前縁からチップ前縁への水平距離（後退正方向）。</td>
+        </tr>
+        <tr>
+          <td>Fin Sets</td>
+          <td>Body Ø at fins [mm]</td>
+          <td>フィン取り付け位置での機体直径。</td>
+        </tr>
+        <tr>
+          <td>Fin Sets</td>
+          <td>Root LE from nose [mm]</td>
+          <td>ノーズ先端からフィンルート前縁までの距離。</td>
+        </tr>
+        <tr>
+          <td>Boattail</td>
+          <td>d₁ / d₂ / Length / Position</td>
+          <td>前後径・長さ・位置。スイッチで有効化。d₂ &lt; d₁ がボートテール（安定寄与）。</td>
+        </tr>
+      </table>
+
+      <h3>計算式（Barrowman 1967）</h3>
+      <table class="mode-table">
+        <tr><th>コンポーネント</th><th>CNα</th><th>XCP</th></tr>
+        <tr>
+          <td>ノーズコーン</td>
+          <td>2.0（全形状共通）</td>
+          <td>ノーズ長 × 形状係数（先端から）</td>
+        </tr>
+        <tr>
+          <td>フィンセット</td>
+          <td style="font-family:monospace; font-size:0.82rem;">4n(s/d)²(1 + r/s) / (1 + √(1 + AR²))</td>
+          <td>ルートLE位置 + Barrowman delta 式</td>
+        </tr>
+        <tr>
+          <td>ボートテール</td>
+          <td style="font-family:monospace; font-size:0.82rem;">2[(d₂/d)² − (d₁/d)²]</td>
+          <td>遷移位置 + 長さ × 形状係数</td>
+        </tr>
+        <tr>
+          <td>合計 XCP</td>
+          <td colspan="2">ΣCNα_i · XCP_i ÷ ΣCNα_i（加重平均）</td>
+        </tr>
+      </table>
+
+      <table class="mode-table" style="margin-top:16px;">
+        <tr><th>ノーズ形状</th><th>XCP係数（ノーズ長比）</th></tr>
+        <tr><td>Conical</td><td>2/3 ≈ 0.667</td></tr>
+        <tr><td>Tangent Ogive</td><td>0.466</td></tr>
+        <tr><td>Parabolic (k=1)</td><td>0.500</td></tr>
+        <tr><td>Elliptical</td><td>1/3 ≈ 0.333</td></tr>
+        <tr><td>Von Kármán (Haack)</td><td>0.437</td></tr>
+      </table>
+
+      <h3>静安定マージンの目安</h3>
+      <div class="status-grid" style="grid-template-columns:repeat(3,1fr);">
+        <div class="status-card completed">
+          <div class="s-name">SM ≥ 2 cal</div>
+          <div class="s-desc">安定（十分な余裕）</div>
+        </div>
+        <div class="status-card running">
+          <div class="s-name">1 ≤ SM &lt; 2</div>
+          <div class="s-desc">安定（許容範囲）</div>
+        </div>
+        <div class="status-card failed">
+          <div class="s-name">SM &lt; 1</div>
+          <div class="s-desc">不安定（CP が CG に近い or 前）</div>
+        </div>
+      </div>
+
+      <div class="callout warning">
+        <div class="callout-icon">⚠️</div>
+        <div><p>Barrowman メソッドは亜音速・小迎角・軸対称を前提とします。超音速域や大迎角では実際の CP が大きく異なる場合があります。</p></div>
+      </div>
+    </section>
+
+    <hr>
+
+    <!-- ===== Mass Budget ===== -->
+    <section id="tools-mass">
+      <h2><span class="section-number">11</span> Mass Budget &amp; Inertia Calculator</h2>
+
+      <div class="url-chip">
+        <span class="method">GET</span>
+        http://localhost:8080<strong>/tools/mass</strong>
+      </div>
+
+      <p>コンポーネントごとに質量・重心位置・慣性モーメントを入力し、全体の重心と慣性モーメントを算出するページです。</p>
+
+      <h3>操作方法</h3>
+      <ol class="steps">
+        <li><div class="step-text">デフォルトで5コンポーネントが表示されます。各行の値を編集すると自動再計算されます。</div></li>
+        <li><div class="step-text"><strong>「+ Add Component」</strong>ボタンで行を追加できます。</div></li>
+        <li><div class="step-text">各行右端の <strong>🗑 ボタン</strong>で行を削除できます。</div></li>
+      </ol>
+
+      <h3>入力列の説明</h3>
+      <table class="mode-table">
+        <tr><th>列</th><th>単位</th><th>説明</th></tr>
+        <tr><td>Component name</td><td>—</td><td>コンポーネント名（任意）</td></tr>
+        <tr><td>Mass</td><td>kg</td><td>コンポーネントの質量</td></tr>
+        <tr><td>X_CG</td><td>mm</td><td>基準点（例: ノーズ先端）からの重心距離</td></tr>
+        <tr><td>Iyy_self</td><td>kg·m²</td><td>コンポーネント自身の重心まわりの横方向慣性モーメント（不明なら0）</td></tr>
+        <tr><td>Ixx</td><td>kg·m²</td><td>軸方向（スピン軸）の慣性モーメント（任意）</td></tr>
+      </table>
+
+      <h3>出力値</h3>
+      <table class="mode-table">
+        <tr><th>項目</th><th>式</th><th>説明</th></tr>
+        <tr><td>Total Mass</td><td>Σm_i</td><td>全コンポーネントの質量合計 [kg]</td></tr>
+        <tr><td>CG from ref.</td><td>Σ(m_i · x_i) / Σm_i</td><td>システム全体の重心位置 [mm]</td></tr>
+        <tr>
+          <td>Iyy（横方向 MOI）</td>
+          <td>Σ(Iyy_self_i + m_i · Δx_i²)</td>
+          <td>システム重心まわりの横方向慣性モーメント [kg·m²]（平行軸定理を自動適用）</td>
+        </tr>
+        <tr><td>Ixx（スピン軸 MOI）</td><td>ΣIxx_i</td><td>スピン軸の慣性モーメント [kg·m²]</td></tr>
+      </table>
+    </section>
+
+    <hr>
+
+    <!-- ===== Hybrid Engine ===== -->
+    <section id="tools-engine">
+      <h2><span class="section-number">12</span> Hybrid Engine Performance</h2>
+
+      <div class="url-chip">
+        <span class="method">GET</span>
+        http://localhost:8080<strong>/tools/engine</strong>
+      </div>
+
+      <p>ハイブリッドロケットエンジンの定常点解析と燃焼シミュレーションを行うページです。</p>
+
+      <h3>主な入力パラメータ</h3>
+      <table class="mode-table">
+        <tr><th>パラメータ</th><th>単位</th><th>説明</th></tr>
+        <tr><td>酸化剤質量流量</td><td>kg/s</td><td>液体酸化剤の供給流量</td></tr>
+        <tr><td>燃料グレイン初期寸法</td><td>mm</td><td>内径・外径・長さ</td></tr>
+        <tr><td>ノズルスロート径</td><td>mm</td><td>ノズル喉部直径</td></tr>
+        <tr><td>燃焼特性値</td><td>—</td><td>C*効率、a・n 係数（燃焼速度則）</td></tr>
+      </table>
+
+      <h3>出力</h3>
+      <ul>
+        <li>定常点: 推力・O/F 比・燃焼室圧・比推力</li>
+        <li>燃焼シミュレーション: 時系列での Thrust・O/F・Pc チャート（ECharts）</li>
+      </ul>
+    </section>
+
+    <hr>
+
+    <!-- ===== FAQ ===== -->
+    <section id="faq">
+      <h2><span class="section-number">13</span> FAQ</h2>
+
+      <h3>Q. アプリが起動しない</h3>
+      <p>Python の依存ライブラリが不足している可能性があります。<code>pip install nicegui fastapi sqlalchemy pandas numpy</code> でインストールしてください。</p>
+
+      <h3>Q. ブラウザが自動で開かない</h3>
+      <p><code>http://localhost:8080</code> を手動で開いてください。</p>
+
+      <h3>Q. Run ボタンを押したが計算が始まらない</h3>
+      <p>以下を確認してください：(1) 必要な設定ファイルがすべて存在するか（Project Files パネルで✗がないか）。(2) 別の計算が実行中でないか（同時実行は 1 つのみ）。(3) ForRocket バイナリが <code>ForRocketWorkbench/</code> 直下に存在するか。</p>
+
+      <h3>Q. 計算は完了したが Result ページにグラフが表示されない</h3>
+      <p>post_tool による後処理が正常に完了しているか確認してください。Result Directory の「Open Folder」ボタンで結果フォルダを開き、PNG ファイルが生成されているか確認できます。</p>
+
+      <h3>Q. フォームエディタで保存した内容が反映されない</h3>
+      <p>Save ボタンを押した後にトースト通知（画面右上）でエラーが表示されていないか確認してください。JSON 構文エラーがある場合は保存されません。</p>
+
+      <h3>Q. Linearity Check で破線が解析点からズレている</h3>
+      <p>これは感度係数算出に使用した Reference Variations 点（橙菱形）の傾きで引いた直線です。他の Variations 点（青丸）が直線上にない場合、そのパラメータの感度は非線形性を持ちます。計算手法を <code>linear_fit</code> に変更するとより多点でフィットした感度係数が得られます。</p>
+
+      <h3>Q. Editor ページの URL を使っているがアクセスできない</h3>
+      <p><code>/editor</code> は現在 <code>/calculate</code> へリダイレクトされます。設定編集機能は Calculate ページの右ペインに統合されています。</p>
+    </section>
+
+  </main>
+</div>
+</body>
+</html>

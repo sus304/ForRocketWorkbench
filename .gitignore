@@ -152,7 +152,9 @@ projects/example/work_sensitivity*/
 
 # Local-only directories
 .claude/
-docs/
+docs/*.md
+docs/spec_web_gui.html
+!docs/manual.html
 tests/
 ref/
 cmd_memo.txt
