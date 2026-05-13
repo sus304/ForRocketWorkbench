@@ -22,7 +22,7 @@ def post_summary(df_all, file_prefix):
     altitude_apogee = df_all["Altitude [m]"][index_apogee]
     downrange_apogee = df_all["Downrange [m]"][index_apogee]
     vel_apogee = vel_norm_log[index_apogee]
-    pos_apogee = [df_all["Latitude [deg]"][index_apogee], df_all["Longitude [deg]"][index_apogee]]
+    pos_apogee = [float(df_all["Latitude [deg]"][index_apogee]), float(df_all["Longitude [deg]"][index_apogee])]
 
     # MaxQ
     index_maxq = np.argmax(df_all["DynamicPressure [kPa]"][:index_apogee])
@@ -51,7 +51,7 @@ def post_summary(df_all, file_prefix):
     # landing
     time_landing = np.array(df_all["Time [s]"])[-1]
     downrange_landing = np.array(df_all["Downrange [m]"])[-1]
-    pos_landing = [np.array(df_all["Latitude [deg]"])[-1], np.array(df_all["Longitude [deg]"])[-1]]
+    pos_landing = [float(np.array(df_all["Latitude [deg]"])[-1]), float(np.array(df_all["Longitude [deg]"])[-1])]
 
     txt = open(file_prefix + '_summary.txt', mode='w')
     txt.writelines(['Launcher Clear X+,', str(round(time_launch_clear, 3)), '[s]\n'])
@@ -110,7 +110,7 @@ def post_summary_for_montecarlo(df_all):
     mach_maxmach = df_all["MachNumber [-]"][index_maxmach]
 
     downrange_landing = np.array(df_all["Downrange [m]"])[-1]
-    pos_landing = [np.array(df_all["Latitude [deg]"])[-1], np.array(df_all["Longitude [deg]"])[-1]]
+    pos_landing = [float(np.array(df_all["Latitude [deg]"])[-1]), float(np.array(df_all["Longitude [deg]"])[-1])]
 
     return dynamic_pressure_maxq, mach_maxmach, time_apogee, altitude_apogee, vel_apogee, pos_landing, downrange_landing
 
