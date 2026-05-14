@@ -6,6 +6,7 @@ from nicegui import app, ui
 from web.db.database import get_session
 from web.db.models import Calculation
 from web.pages.shared import build_header
+from web.services import calc_service
 from web.services.history_service import delete_calculations, filter_rows
 from web.services.project_service import scan_projects
 
