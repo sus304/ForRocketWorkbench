@@ -1,6 +1,7 @@
+import asyncio
 import os
 
-from nicegui import ui
+from nicegui import app, ui
 
 from web.db.database import get_session
 from web.db.models import Calculation
@@ -119,6 +120,30 @@ def dashboard():
                 ui.button('Delete', on_click=do_delete).props('color=negative')
         dialog.open()
 
+    def confirm_stop_server():
+        job = calc_service.current_job()
+        running = job.status in ('running', 'cancelling')
+
+        with ui.dialog() as dialog, ui.card():
+            ui.label('Stop ForRocket Workbench server?').classes('text-h6')
+            if running:
+                ui.label(f'A calculation is still {job.status} (calc #{job.calc_id}). '
+                         'It will be terminated.').classes('text-negative q-mt-sm')
+            else:
+                ui.label('The browser tab will disconnect. You will need to relaunch the app to continue.') \
+                    .classes('text-caption text-grey')
+            with ui.row().classes('q-mt-md justify-end full-width'):
+                ui.button('Cancel', on_click=dialog.close).props('flat')
+
+                async def do_stop():
+                    dialog.close()
+                    ui.notify('Stopping server...', type='warning')
+                    await asyncio.sleep(0.5)
+                    app.shutdown()
+
+                ui.button('Stop server', on_click=do_stop).props('color=negative')
+        dialog.open()
+
     table = None
 
     with ui.row().classes('w-full h-full no-wrap'):
@@ -144,6 +169,9 @@ def dashboard():
                 ui.space()
                 (ui.button('+ New Calculation', on_click=lambda: ui.navigate.to('/calculate'))
                  .props('color=primary'))
+                (ui.button('Stop Server', icon='power_settings_new', on_click=confirm_stop_server)
+                 .props('color=negative outline')
+                 .tooltip('Shut down the Workbench server process'))
 
             # --- Filter / search bar ---
             with ui.row().classes('items-center q-gutter-sm q-mb-sm'):

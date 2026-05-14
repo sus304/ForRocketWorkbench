@@ -1,6 +1,9 @@
-from nicegui import ui
+import subprocess
+
+from nicegui import app, ui
 
 from web.db.database import init_db
+from web.services import calc_service
 import web.pages.dashboard  # noqa: F401 — registers @ui.page('/')
 import web.pages.calculate  # noqa: F401 — registers @ui.page('/calculate')
 import web.pages.result     # noqa: F401 — registers @ui.page('/result/{calc_id}')
@@ -17,6 +20,18 @@ def _find_free_port(start: int, attempts: int = 10) -> int:
             if s.connect_ex(('localhost', port)) != 0:
                 return port
     raise OSError(f'No free port found in range {start}–{start + attempts - 1}')
+
+
+@app.on_shutdown
+def _terminate_child_processes():
+    proc = calc_service._current_proc
+    if proc is None or proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
 if __name__ in {'__main__', '__mp_main__'}:
