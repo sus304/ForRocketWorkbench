@@ -132,6 +132,9 @@ dmypy.json
 ForRocket
 ForRocket.exe
 
+# Local database (auto-generated on startup)
+workbench.db
+
 # ForRocket installer build artifact
 Setup_ForRocketWorkbench.exe
 
