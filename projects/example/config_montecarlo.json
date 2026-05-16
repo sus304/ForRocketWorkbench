@@ -120,6 +120,18 @@
             "Error 3sigma Low": 0.1,
             "Error 3sigma High": 0.1
         },
+        "Gas Jet Moment": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 5.0,
+            "Error 3sigma High": 5.0
+        },
+        "Gas Jet Duration": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 5.0,
+            "Error 3sigma High": 5.0
+        },
         "Engine Miss-Alignment Y": {
             "Enable": false,
             "Error Unit": "deg",
@@ -131,6 +143,48 @@
             "Error Unit": "deg",
             "Error 3sigma Low": 0.5,
             "Error 3sigma High": 0.5
+        },
+        "CG Offset Y": {
+            "Enable": false,
+            "Error Unit": "mm",
+            "Error 3sigma Low": 1.0,
+            "Error 3sigma High": 1.0
+        },
+        "CG Offset Z": {
+            "Enable": false,
+            "Error Unit": "mm",
+            "Error 3sigma Low": 1.0,
+            "Error 3sigma High": 1.0
+        },
+        "Thrust Point Offset Y": {
+            "Enable": false,
+            "Error Unit": "mm",
+            "Error 3sigma Low": 1.0,
+            "Error 3sigma High": 1.0
+        },
+        "Thrust Point Offset Z": {
+            "Enable": false,
+            "Error Unit": "mm",
+            "Error 3sigma Low": 1.0,
+            "Error 3sigma High": 1.0
+        },
+        "POI Ixy": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 10.0,
+            "Error 3sigma High": 10.0
+        },
+        "POI Ixz": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 10.0,
+            "Error 3sigma High": 10.0
+        },
+        "POI Iyz": {
+            "Enable": false,
+            "Error Unit": "%",
+            "Error 3sigma Low": 10.0,
+            "Error 3sigma High": 10.0
         }
     }
 }
