@@ -26,6 +26,26 @@
             "Variation Unit": "%",
             "Variations": [-5, -2, 2, 5],
             "Reference Variations": [-5, 5]
+        },
+        {
+            "Name": "Residual Propellant",
+            "Variation Unit": "kg",
+            "Variations": [-2, -1, 1, 2],
+            "Reference Variations": [-2, 2],
+            "Effects": [
+                {"Parameter": "Propellant Mass", "Scale": -1.0},
+                {"Parameter": "Mass Inert",      "Scale":  1.0}
+            ]
+        },
+        {
+            "Name": "Thrust + CA",
+            "Variation Unit": "%",
+            "Variations": [-10, -5, 5, 10],
+            "Reference Variations": [-10, 10],
+            "Effects": [
+                {"Parameter": "Thrust", "Scale": 1.0},
+                {"Parameter": "CA",     "Scale": 1.0}
+            ]
         }
     ]
 }

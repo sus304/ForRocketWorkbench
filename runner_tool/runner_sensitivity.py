@@ -21,23 +21,43 @@ from runner_tool.runner_montecarlo import _SCALAR_PARAM_REGISTRY
 from runner_tool.runner_multi import run_multi
 from path_define import runner_sensitivity_directory, make_unique_work_dir
 
-# TODO: Add coupled parameter support (e.g., simultaneous Thrust + Isp variation,
-#       or Thrust + propellant mass flow rate variation). Currently each parameter
-#       varies independently (One-At-a-Time, OAT method).
 # TODO: Add XCG sensitivity support (file-mode: absolute offset, constant-mode: direct value).
 # TODO: Add MOI sensitivity support (file-mode: multiplier applied to all axes).
 
 _AVAILABLE_PARAMS = sorted(_SCALAR_PARAM_REGISTRY.keys()) + ['Thrust', 'CA']
 
 
-def _compute_param_value(nominal, variation, unit):
+def _compute_param_value(nominal, variation, unit, scale=1.0):
     """
-    unit='%'  -> new = nominal * (1 + variation/100)
-    unit=other -> new = nominal + variation  (absolute offset in given unit)
+    unit='%'  -> new = nominal * (1 + variation * scale / 100)
+    unit=other -> new = nominal + variation * scale
+    scale=1.0 (default) reproduces the original OAT behaviour.
     """
     if unit == '%':
-        return nominal * (1.0 + variation / 100.0)
-    return nominal + variation
+        return nominal * (1.0 + variation * scale / 100.0)
+    return nominal + variation * scale
+
+
+def _get_nominal(pname, base_cfg, rocket_param, engine_param, unit):
+    """Return nominal value for pname; validate file-mode unit constraints."""
+    if pname in _SCALAR_PARAM_REGISTRY:
+        cfg_key, getter, _ = _SCALAR_PARAM_REGISTRY[pname]
+        return getter(base_cfg[cfg_key])
+    if pname == 'Thrust':
+        if thrust_file_is_enable(engine_param) and unit != '%':
+            raise ValueError(
+                f'Thrust in file mode only supports Variation Unit "%", got "{unit}". '
+                'Use "%" to apply a scaling multiplier to the entire thrust curve.')
+        return 1.0 if thrust_file_is_enable(engine_param) else get_constant_thrust(engine_param)
+    if pname == 'CA':
+        if CA_file_is_enable(rocket_param) and unit != '%':
+            raise ValueError(
+                f'CA in file mode only supports Variation Unit "%", got "{unit}". '
+                'Use "%" to apply a scaling multiplier to the entire CA curve.')
+        return 1.0 if CA_file_is_enable(rocket_param) else get_constant_CA(rocket_param)
+    raise ValueError(
+        f'Unknown sensitivity parameter: "{pname}".\n'
+        f'Available parameters: {_AVAILABLE_PARAMS}')
 
 
 def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_name, max_thread_run=False):
@@ -57,8 +77,12 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
 
     sens_params = sensitivity_config.get('Sensitivity Parameters', [])
 
-    # Build case definitions: (case_num, param_name, variation, unit, nominal, param_value)
-    case_defs = [(0, 'nominal', 0.0, '%', None, None)]
+    # case_defs: (case_num, display_name, variation, unit, nominal_value, param_value,
+    #             effects_detail, effects_list)
+    # effects_list: [(param_name, nominal, new_value), ...]
+    # Simple params: nominal_value = actual nominal, param_value = new value, effects_detail = ''
+    # Coupled params: nominal_value = 0.0, param_value = variation, effects_detail = 'P: a→b; ...'
+    case_defs = [(0, 'nominal', 0.0, '%', None, None, '', [])]
     case_num = 1
 
     base_cfg = {
@@ -69,34 +93,44 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
     }
 
     for sp in sens_params:
-        param_name = sp['Name']
+        display_name = sp['Name']
         unit = sp.get('Variation Unit', '%')
         variations = sp['Variations']
+        effects_config = sp.get('Effects', None)
 
-        if param_name in _SCALAR_PARAM_REGISTRY:
-            cfg_key, getter, _ = _SCALAR_PARAM_REGISTRY[param_name]
-            nominal = getter(base_cfg[cfg_key])
-        elif param_name == 'Thrust':
-            if thrust_file_is_enable(engine_param) and unit != '%':
-                raise ValueError(
-                    f'Thrust in file mode only supports Variation Unit "%", got "{unit}". '
-                    'Use "%" to apply a scaling multiplier to the entire thrust curve.')
-            nominal = 1.0 if thrust_file_is_enable(engine_param) else get_constant_thrust(engine_param)
-        elif param_name == 'CA':
-            if CA_file_is_enable(rocket_param) and unit != '%':
-                raise ValueError(
-                    f'CA in file mode only supports Variation Unit "%", got "{unit}". '
-                    'Use "%" to apply a scaling multiplier to the entire CA curve.')
-            nominal = 1.0 if CA_file_is_enable(rocket_param) else get_constant_CA(rocket_param)
+        if effects_config is None:
+            # Simple OAT: Name is the parameter itself
+            nominal = _get_nominal(display_name, base_cfg, rocket_param, engine_param, unit)
+            for var in variations:
+                new_val = _compute_param_value(nominal, var, unit)
+                case_defs.append((
+                    case_num, display_name, var, unit,
+                    nominal, new_val, '',
+                    [(display_name, nominal, new_val)],
+                ))
+                case_num += 1
         else:
-            raise ValueError(
-                f'Unknown sensitivity parameter: "{param_name}".\n'
-                f'Available parameters: {_AVAILABLE_PARAMS}')
+            # Coupled: Effects list defines which parameters change and by how much
+            effect_specs = []  # [(pname, scale, nominal)]
+            for eff in effects_config:
+                pname = eff['Parameter']
+                scale = float(eff.get('Scale', 1.0))
+                nom = _get_nominal(pname, base_cfg, rocket_param, engine_param, unit)
+                effect_specs.append((pname, scale, nom))
 
-        for var in variations:
-            case_defs.append((case_num, param_name, var, unit, nominal,
-                              _compute_param_value(nominal, var, unit)))
-            case_num += 1
+            for var in variations:
+                effects_list = []
+                detail_parts = []
+                for pname, scale, nom in effect_specs:
+                    new_val = _compute_param_value(nom, var, unit, scale)
+                    effects_list.append((pname, nom, new_val))
+                    detail_parts.append(f'{pname}: {nom:.4g}→{new_val:.4g}')
+                case_defs.append((
+                    case_num, display_name, var, unit,
+                    0.0, var, '; '.join(detail_parts),
+                    effects_list,
+                ))
+                case_num += 1
 
     # Pre-load file-based arrays once (shared across threads via closure; read-only)
     ca_mach_arr = ca_base_arr = np.array([])
@@ -114,7 +148,7 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
     prefix = work_dir + '/' + calc_dir + '/'
 
     def _generate_case(cdef):
-        cn, pname, var, unit, nominal, new_value = cdef
+        cn, display_name, var, unit, nominal_value, param_value, effects_detail, effects_list = cdef
 
         sc    = deepcopy(solver_config)
         stc   = deepcopy(stage_config)
@@ -122,41 +156,43 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
         ep    = deepcopy(engine_param)
         soe_c = deepcopy(soe)
 
-        # Apply variation for the target parameter
-        if pname in _SCALAR_PARAM_REGISTRY:
-            cfg_key, _, setter = _SCALAR_PARAM_REGISTRY[pname]
-            cfgs = {'rocket_param': rp, 'engine_param': ep, 'soe': soe_c, 'solver_config': sc}
-            setter(cfgs[cfg_key], new_value)
-        elif pname == 'Thrust':
-            if thrust_file_is_enable(engine_param):
-                mult = 1.0 + var / 100.0
-                tf = f'{cn}_thrust.csv'
-                np.savetxt(prefix + tf,
-                           np.c_[thrust_time_arr, thrust_vac_arr * mult, thrust_mdot_arr],
-                           delimiter=',', fmt='%0.5f', header='t,f,mdot', comments='')
-                ep = set_thrust_file_name(ep, tf)
-            else:
-                ep = set_constant_thrust(ep, new_value)
-        elif pname == 'CA':
-            if CA_file_is_enable(rocket_param):
-                mult = 1.0 + var / 100.0
-                cf = f'{cn}_CA.csv'
-                np.savetxt(prefix + cf,
-                           np.c_[ca_mach_arr, ca_base_arr * mult],
-                           delimiter=',', fmt='%0.6f', header='mach,CA', comments='')
-                rp = set_CA_file_name(rp, cf)
-                rp = set_burnoutCA_file_name(rp, cf)
-            else:
-                rp = set_constant_CA(rp, new_value)
-                rp = set_constant_burnoutCA(rp, new_value)
+        varied_pnames = {pname for pname, _, _ in effects_list}
 
-        # Fix absolute paths for file-based parameters that are not being varied
-        if CA_file_is_enable(rocket_param) and pname != 'CA':
+        for pname, nom, new_val in effects_list:
+            if pname in _SCALAR_PARAM_REGISTRY:
+                cfg_key, _, setter = _SCALAR_PARAM_REGISTRY[pname]
+                cfgs = {'rocket_param': rp, 'engine_param': ep, 'soe': soe_c, 'solver_config': sc}
+                setter(cfgs[cfg_key], new_val)
+            elif pname == 'Thrust':
+                if thrust_file_is_enable(engine_param):
+                    # nom=1.0 for file mode; new_val is the scale factor
+                    tf = f'{cn}_thrust.csv'
+                    np.savetxt(prefix + tf,
+                               np.c_[thrust_time_arr, thrust_vac_arr * new_val, thrust_mdot_arr],
+                               delimiter=',', fmt='%0.5f', header='t,f,mdot', comments='')
+                    ep = set_thrust_file_name(ep, tf)
+                else:
+                    ep = set_constant_thrust(ep, new_val)
+            elif pname == 'CA':
+                if CA_file_is_enable(rocket_param):
+                    # nom=1.0 for file mode; new_val is the scale factor
+                    cf = f'{cn}_CA.csv'
+                    np.savetxt(prefix + cf,
+                               np.c_[ca_mach_arr, ca_base_arr * new_val],
+                               delimiter=',', fmt='%0.6f', header='mach,CA', comments='')
+                    rp = set_CA_file_name(rp, cf)
+                    rp = set_burnoutCA_file_name(rp, cf)
+                else:
+                    rp = set_constant_CA(rp, new_val)
+                    rp = set_constant_burnoutCA(rp, new_val)
+
+        # Fix absolute paths for file-based parameters not being varied
+        if CA_file_is_enable(rocket_param) and 'CA' not in varied_pnames:
             abs_ca = os.path.abspath(get_CA_file_name(rocket_param))
             rp = set_CA_file_name(rp, abs_ca)
             rp = set_burnoutCA_file_name(rp, abs_ca)
 
-        if thrust_file_is_enable(engine_param) and pname != 'Thrust':
+        if thrust_file_is_enable(engine_param) and 'Thrust' not in varied_pnames:
             ep = set_thrust_file_name(ep, os.path.abspath(get_thrust_file_name(engine_param)))
 
         if xcg_file_is_enable(rocket_param):
@@ -204,11 +240,13 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
 
     with open(work_dir + '/sensitivity_case_list.csv', 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['case', 'param_name', 'variation', 'variation_unit', 'nominal_value', 'param_value'])
-        for cn, pname, var, unit, nominal, new_val in case_defs:
+        writer.writerow(['case', 'param_name', 'variation', 'variation_unit',
+                         'nominal_value', 'param_value', 'effects_detail'])
+        for cn, pname, var, unit, nominal, new_val, detail, _ in case_defs:
             writer.writerow([cn, pname, var, unit,
                              '' if nominal is None else nominal,
-                             '' if new_val is None else new_val])
+                             '' if new_val is None else new_val,
+                             detail])
 
     solver_config_file_list = [f'{cn}_solver_config.json' for cn, *_ in case_defs]
     cases_dir = os.path.abspath(work_dir + '/' + calc_dir)
