@@ -109,6 +109,17 @@ def set_mass_prop(rocket_param, mass):
     rocket_param['Mass']['Propellant [kg]'] = mass
     return rocket_param
 
+def get_gas_jet_moment(rocket_param):
+    return rocket_param.get('Gas Jet', {}).get('Rolling Moment [N.m]', 0.0)
+def set_gas_jet_moment(rocket_param, val):
+    rocket_param.setdefault('Gas Jet', {})['Rolling Moment [N.m]'] = val
+    return rocket_param
+def get_gas_jet_duration(rocket_param):
+    return rocket_param.get('Gas Jet', {}).get('Duration [s]', 0.0)
+def set_gas_jet_duration(rocket_param, val):
+    rocket_param.setdefault('Gas Jet', {})['Duration [s]'] = val
+    return rocket_param
+
 def xcg_file_is_enable(rocket_param):
     return rocket_param.get('Enable X-C.G. File')
 def get_xcg_file_name(rocket_param):
@@ -120,6 +131,16 @@ def get_constant_xcg(rocket_param):
     return rocket_param.get('Constant X-C.G.').get('Constant X-C.G. from BodyTail [mm]')
 def set_constant_xcg(rocket_param, xcg):
     rocket_param['Constant X-C.G.']['Constant X-C.G. from BodyTail [mm]'] = xcg
+    return rocket_param
+def get_cg_offset_y(rocket_param):
+    return rocket_param.get('Constant X-C.G.', {}).get('y-C.G. Offset [mm]', 0.0)
+def set_cg_offset_y(rocket_param, val):
+    rocket_param['Constant X-C.G.']['y-C.G. Offset [mm]'] = val
+    return rocket_param
+def get_cg_offset_z(rocket_param):
+    return rocket_param.get('Constant X-C.G.', {}).get('z-C.G. Offset [mm]', 0.0)
+def set_cg_offset_z(rocket_param, val):
+    rocket_param['Constant X-C.G.']['z-C.G. Offset [mm]'] = val
     return rocket_param
 
 def moi_file_is_enable(rocket_param):
@@ -145,6 +166,32 @@ def set_constant_moi_roll(rocket_param, moi):
     rocket_param['Constant M.I.']['Roll Axis [kg-m2]'] = moi
     return rocket_param
 
+def poi_const_is_enable(rocket_param):
+    return rocket_param.get('Enable Product of Inertia', False)
+def poi_file_is_enable(rocket_param):
+    return rocket_param.get('Enable Product of Inertia File', False)
+def get_constant_poi_ixy(rocket_param):
+    return rocket_param.get('Constant Product of Inertia', {}).get('Ixy [kg-m2]', 0.0)
+def set_constant_poi_ixy(rocket_param, val):
+    rocket_param.setdefault('Constant Product of Inertia', {})['Ixy [kg-m2]'] = val
+    return rocket_param
+def get_constant_poi_ixz(rocket_param):
+    return rocket_param.get('Constant Product of Inertia', {}).get('Ixz [kg-m2]', 0.0)
+def set_constant_poi_ixz(rocket_param, val):
+    rocket_param.setdefault('Constant Product of Inertia', {})['Ixz [kg-m2]'] = val
+    return rocket_param
+def get_constant_poi_iyz(rocket_param):
+    return rocket_param.get('Constant Product of Inertia', {}).get('Iyz [kg-m2]', 0.0)
+def set_constant_poi_iyz(rocket_param, val):
+    rocket_param.setdefault('Constant Product of Inertia', {})['Iyz [kg-m2]'] = val
+    return rocket_param
+def get_poi_file_ixy(rocket_param):
+    return rocket_param.get('Product of Inertia File', {}).get('Ixy File Path', '')
+def get_poi_file_ixz(rocket_param):
+    return rocket_param.get('Product of Inertia File', {}).get('Ixz File Path', '')
+def get_poi_file_iyz(rocket_param):
+    return rocket_param.get('Product of Inertia File', {}).get('Iyz File Path', '')
+
 def xcp_file_is_enable(rocket_param):
     return rocket_param.get('Enable X-C.P. File')
 def get_xcp_file_name(rocket_param):
@@ -156,6 +203,17 @@ def get_constant_xcp(rocket_param):
     return rocket_param.get('Constant X-C.P.').get('Constant X-C.P. from BodyTail [mm]')
 def set_constant_xcp(rocket_param, xcp):
     rocket_param['Constant X-C.P.']['Constant X-C.P. from BodyTail [mm]'] = xcp
+    return rocket_param
+
+def get_thrust_point_offset_y(rocket_param):
+    return rocket_param.get('y-ThrustLoadingPoint Offset [mm]', 0.0)
+def set_thrust_point_offset_y(rocket_param, val):
+    rocket_param['y-ThrustLoadingPoint Offset [mm]'] = val
+    return rocket_param
+def get_thrust_point_offset_z(rocket_param):
+    return rocket_param.get('z-ThrustLoadingPoint Offset [mm]', 0.0)
+def set_thrust_point_offset_z(rocket_param, val):
+    rocket_param['z-ThrustLoadingPoint Offset [mm]'] = val
     return rocket_param
 
 def CA_file_is_enable(rocket_param):
@@ -372,6 +430,9 @@ def copy_config_files(solver_config, dst_dir):
         _file_copy_by_param(rocket_param, 'Enable Clp File', 'Clp File', 'Clp File Path', dst_dir)
         _file_copy_by_param(rocket_param, 'Enable Cmq File', 'Cmq File', 'Cmq File Path', dst_dir)
         _file_copy_by_param(rocket_param, 'Enable Cnr File', 'Cnr File', 'Cnr File Path', dst_dir)
+        _file_copy_by_param(rocket_param, 'Enable Product of Inertia File', 'Product of Inertia File', 'Ixy File Path', dst_dir)
+        _file_copy_by_param(rocket_param, 'Enable Product of Inertia File', 'Product of Inertia File', 'Ixz File Path', dst_dir)
+        _file_copy_by_param(rocket_param, 'Enable Product of Inertia File', 'Product of Inertia File', 'Iyz File Path', dst_dir)
 
         # from engine config
         engine_param = get_engine_param(stage_config)

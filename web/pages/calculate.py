@@ -162,9 +162,12 @@ def _build_stage_form(data: dict, container):
 
 
 def _build_rocket_form(data: dict, container):
-    mass = data.get('Mass', {})
-    gj   = data.get('Gas Jet', {})
-    pa   = data.get('Program Attitude', {})
+    mass   = data.get('Mass', {})
+    gj     = data.get('Gas Jet', {})
+    pa     = data.get('Program Attitude', {})
+    xcg_c  = data.get('Constant X-C.G.', {})
+    poi_c  = data.get('Constant Product of Inertia', {})
+    poi_f  = data.get('Product of Inertia File', {})
 
     with container:
         with ui.card().classes('w-full'):
@@ -206,6 +209,9 @@ def _build_rocket_form(data: dict, container):
                 'Constant X-C.G.', 'Constant X-C.G. from BodyTail [mm]',
                 'X-C.G.', 'Constant [mm]', 1800.0, '%.2f',
             )
+            with ui.grid(columns=2).classes('w-full').bind_visibility_from(en_xcg, 'value', backward=lambda v: not v):
+                cg_off_y = ui.number('y-C.G. Offset [mm]', value=xcg_c.get('y-C.G. Offset [mm]', 0.0), format='%.4f')
+                cg_off_z = ui.number('z-C.G. Offset [mm]', value=xcg_c.get('z-C.G. Offset [mm]', 0.0), format='%.4f')
 
         mi_c = data.get('Constant M.I.', {})
         mi_f = data.get('M.I. File', {})
@@ -220,6 +226,23 @@ def _build_rocket_form(data: dict, container):
                 mi_roll  = ui.number('Roll [kg·m²]',  value=mi_c.get('Roll Axis [kg-m2]',    0.5), format='%.4f')
 
         with ui.card().classes('w-full'):
+            ui.label('Product of Inertia').classes('text-subtitle2')
+            poi_mode = ui.select(
+                ['Disabled', 'Constant', 'File'],
+                value=('File' if data.get('Enable Product of Inertia File', False)
+                       else ('Constant' if data.get('Enable Product of Inertia', False) else 'Disabled')),
+                label='Mode',
+            )
+            with ui.grid(columns=3).classes('w-full').bind_visibility_from(poi_mode, 'value', backward=lambda v: v == 'Constant'):
+                poi_ixy = ui.number('Ixy [kg·m²]', value=poi_c.get('Ixy [kg-m2]', 0.0), format='%.6f')
+                poi_ixz = ui.number('Ixz [kg·m²]', value=poi_c.get('Ixz [kg-m2]', 0.0), format='%.6f')
+                poi_iyz = ui.number('Iyz [kg·m²]', value=poi_c.get('Iyz [kg-m2]', 0.0), format='%.6f')
+            with ui.column().classes('w-full q-gutter-xs').bind_visibility_from(poi_mode, 'value', backward=lambda v: v == 'File'):
+                poi_f_ixy = ui.input('Ixy File Path', value=poi_f.get('Ixy File Path', '')).classes('w-full')
+                poi_f_ixz = ui.input('Ixz File Path', value=poi_f.get('Ixz File Path', '')).classes('w-full')
+                poi_f_iyz = ui.input('Iyz File Path', value=poi_f.get('Iyz File Path', '')).classes('w-full')
+
+        with ui.card().classes('w-full'):
             ui.label('X-C.P. from Body Tail').classes('text-subtitle2')
             en_xcp, xcp_file, xcp_const = _file_or_const(
                 data, 'Enable X-C.P. File',
@@ -228,9 +251,12 @@ def _build_rocket_form(data: dict, container):
                 'X-C.P.', 'Constant [mm]', 1400.0, '%.2f',
             )
 
-        thr_pt = ui.number('X-Thrust Loading Point from Body Tail [mm]',
-                           value=data.get('X-ThrustLoadingPoint from BodyTail [mm]', 0.0),
-                           format='%.2f').classes('w-full')
+        with ui.card().classes('w-full'):
+            ui.label('Thrust Loading Point').classes('text-subtitle2')
+            with ui.grid(columns=3).classes('w-full'):
+                thr_pt   = ui.number('X from Body Tail [mm]',  value=data.get('X-ThrustLoadingPoint from BodyTail [mm]', 0.0), format='%.2f')
+                thr_pt_y = ui.number('y-Offset [mm]',          value=data.get('y-ThrustLoadingPoint Offset [mm]', 0.0),        format='%.4f')
+                thr_pt_z = ui.number('z-Offset [mm]',          value=data.get('z-ThrustLoadingPoint Offset [mm]', 0.0),        format='%.4f')
 
         ca_f = data.get('CA File', {})
         ca_c = data.get('Constant CA', {})
@@ -308,7 +334,11 @@ def _build_rocket_form(data: dict, container):
         }
         r['Enable X-C.G. File'] = en_xcg.value
         r['X-C.G. File']     = {'X-C.G. File Path': xcg_file.value}
-        r['Constant X-C.G.'] = {'Constant X-C.G. from BodyTail [mm]': xcg_const.value}
+        r['Constant X-C.G.'] = {
+            'Constant X-C.G. from BodyTail [mm]': xcg_const.value,
+            'y-C.G. Offset [mm]': cg_off_y.value,
+            'z-C.G. Offset [mm]': cg_off_z.value,
+        }
         r['Enable M.I. File'] = en_mi.value
         r['M.I. File']    = {'M.I. File Path': mi_file.value}
         r['Constant M.I.'] = {
@@ -316,10 +346,24 @@ def _build_rocket_form(data: dict, container):
             'Pitch Axis [kg-m2]': mi_pitch.value,
             'Roll Axis [kg-m2]':  mi_roll.value,
         }
+        r['Enable Product of Inertia']      = (poi_mode.value == 'Constant')
+        r['Enable Product of Inertia File'] = (poi_mode.value == 'File')
+        r['Constant Product of Inertia'] = {
+            'Ixy [kg-m2]': poi_ixy.value,
+            'Ixz [kg-m2]': poi_ixz.value,
+            'Iyz [kg-m2]': poi_iyz.value,
+        }
+        r['Product of Inertia File'] = {
+            'Ixy File Path': poi_f_ixy.value,
+            'Ixz File Path': poi_f_ixz.value,
+            'Iyz File Path': poi_f_iyz.value,
+        }
         r['Enable X-C.P. File'] = en_xcp.value
         r['X-C.P. File']     = {'X-C.P. File Path': xcp_file.value}
         r['Constant X-C.P.'] = {'Constant X-C.P. from BodyTail [mm]': xcp_const.value}
         r['X-ThrustLoadingPoint from BodyTail [mm]'] = thr_pt.value
+        r['y-ThrustLoadingPoint Offset [mm]'] = thr_pt_y.value
+        r['z-ThrustLoadingPoint Offset [mm]'] = thr_pt_z.value
         r['Enable CA File'] = en_ca.value
         r['CA File'] = {'CA File Path': ca_path.value, 'BurnOut CA File Path': ca_bo_path.value}
         r['Constant CA'] = {'Constant CA [-]': ca_val.value, 'Constant BurnOut CA [-]': ca_bo_val.value}
@@ -516,8 +560,17 @@ _MC_ERROR_PARAMS_DEF = [
     ('Cnr',                           '%',   False),
     ('Cld',                           '%',   False),
     ('Fin Cant Angle',                'deg', False),
+    ('Gas Jet Moment',                '%',   False),
+    ('Gas Jet Duration',              '%',   False),
     ('Engine Miss-Alignment Y',       'deg', False),
     ('Engine Miss-Alignment Z',       'deg', False),
+    ('CG Offset Y',                   'mm',  False),
+    ('CG Offset Z',                   'mm',  False),
+    ('Thrust Point Offset Y',         'mm',  False),
+    ('Thrust Point Offset Z',         'mm',  False),
+    ('POI Ixy',                       '%',   False),
+    ('POI Ixz',                       '%',   False),
+    ('POI Iyz',                       '%',   False),
 ]
 
 _SENS_PARAM_NAMES = [

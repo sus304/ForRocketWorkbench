@@ -40,6 +40,15 @@ from runner_tool.json_api import get_constant_Cnr, set_constant_Cnr
 from runner_tool.json_api import get_cant_angle, set_cant_angle
 from runner_tool.json_api import get_engine_miss_alignment_y, set_engine_miss_alignment_y
 from runner_tool.json_api import get_engine_miss_alignment_z, set_engine_miss_alignment_z
+from runner_tool.json_api import get_gas_jet_moment, set_gas_jet_moment
+from runner_tool.json_api import get_gas_jet_duration, set_gas_jet_duration
+from runner_tool.json_api import get_cg_offset_y, set_cg_offset_y
+from runner_tool.json_api import get_cg_offset_z, set_cg_offset_z
+from runner_tool.json_api import get_thrust_point_offset_y, set_thrust_point_offset_y
+from runner_tool.json_api import get_thrust_point_offset_z, set_thrust_point_offset_z
+from runner_tool.json_api import get_constant_poi_ixy, set_constant_poi_ixy
+from runner_tool.json_api import get_constant_poi_ixz, set_constant_poi_ixz
+from runner_tool.json_api import get_constant_poi_iyz, set_constant_poi_iyz
 
 from runner_tool.runner_multi import run_multi
 
@@ -106,6 +115,15 @@ _SCALAR_PARAM_REGISTRY = {
     'Fin Cant Angle':           ('rocket_param',  get_cant_angle,                      set_cant_angle                     ),
     'Engine Miss-Alignment Y':  ('engine_param',  get_engine_miss_alignment_y,         set_engine_miss_alignment_y        ),
     'Engine Miss-Alignment Z':  ('engine_param',  get_engine_miss_alignment_z,         set_engine_miss_alignment_z        ),
+    'Gas Jet Moment':           ('rocket_param',  get_gas_jet_moment,                  set_gas_jet_moment                 ),
+    'Gas Jet Duration':         ('rocket_param',  get_gas_jet_duration,                set_gas_jet_duration               ),
+    'CG Offset Y':              ('rocket_param',  get_cg_offset_y,                     set_cg_offset_y                    ),
+    'CG Offset Z':              ('rocket_param',  get_cg_offset_z,                     set_cg_offset_z                    ),
+    'Thrust Point Offset Y':    ('rocket_param',  get_thrust_point_offset_y,           set_thrust_point_offset_y          ),
+    'Thrust Point Offset Z':    ('rocket_param',  get_thrust_point_offset_z,           set_thrust_point_offset_z          ),
+    'POI Ixy':                  ('rocket_param',  get_constant_poi_ixy,                set_constant_poi_ixy               ),
+    'POI Ixz':                  ('rocket_param',  get_constant_poi_ixz,                set_constant_poi_ixz               ),
+    'POI Iyz':                  ('rocket_param',  get_constant_poi_iyz,                set_constant_poi_iyz               ),
     'Primary Parachute Drag':        ('soe', get_parachute_drag_factor,           set_parachute_drag_factor          ),
     'Primary Parachute Open Time':   ('soe', get_parachute_open_time,             set_parachute_open_time            ),
     'Secondary Parachute Drag':      ('soe', get_secondary_parachute_drag_factor, set_secondary_parachute_drag_factor),

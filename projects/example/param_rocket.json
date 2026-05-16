@@ -23,7 +23,9 @@
         "X-C.G. File Path": ""
     },
     "Constant X-C.G.": {
-        "Constant X-C.G. from BodyTail [mm]": 1800.0
+        "Constant X-C.G. from BodyTail [mm]": 1800.0,
+        "y-C.G. Offset [mm]": 0.0,
+        "z-C.G. Offset [mm]": 0.0
     },
     "Comment M.I.": "Moment of Inertia",
     "Enable M.I. File": false,
@@ -35,6 +37,18 @@
         "Pitch Axis [kg-m2]": 120.0,
         "Roll Axis [kg-m2]": 0.5
     },
+    "Enable Product of Inertia": false,
+    "Constant Product of Inertia": {
+        "Ixy [kg-m2]": 0.0,
+        "Ixz [kg-m2]": 0.0,
+        "Iyz [kg-m2]": 0.0
+    },
+    "Enable Product of Inertia File": false,
+    "Product of Inertia File": {
+        "Ixy File Path": "",
+        "Ixz File Path": "",
+        "Iyz File Path": ""
+    },
     "Enable X-C.P. File": false,
     "X-C.P. File": {
         "X-C.P. File Path": ""
@@ -43,6 +57,8 @@
         "Constant X-C.P. from BodyTail [mm]": 1400.0
     },
     "X-ThrustLoadingPoint from BodyTail [mm]": 0.0,
+    "y-ThrustLoadingPoint Offset [mm]": 0.0,
+    "z-ThrustLoadingPoint Offset [mm]": 0.0,
     "Comment CA": "Axial Force Coefficient",
     "Enable CA File": false,
     "CA File": {
