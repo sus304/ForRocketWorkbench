@@ -6,6 +6,7 @@ import numpy as np
 from scipy.stats import truncnorm
 from concurrent import futures
 
+from runner_tool.json_api import copy_config_files
 from runner_tool.json_api import get_stage_config, get_stage_config_file_name, set_constant_burnoutCA
 from runner_tool.json_api import get_rocket_param, get_rocket_param_file_name
 from runner_tool.json_api import get_engine_param, get_engine_param_file_name
@@ -155,6 +156,9 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
     # 計算ディレクトリを作成
     calc_dir = 'cases'
     os.mkdir(work_dir+'/'+calc_dir)
+
+    # ケースJSON内が相対パスで参照する設定/データファイルを cases ディレクトリへコピー
+    copy_config_files(solver_config, work_dir+'/'+calc_dir)
 
     # ---- Wind -------------------------------------------------------
     wind_files = []

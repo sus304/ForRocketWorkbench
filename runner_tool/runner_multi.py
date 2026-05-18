@@ -34,8 +34,8 @@ def run_multi(cases_dir, solver_config_file_list, max_thread_run=False):
     try:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(_worker, arg) for arg in args]
-            for _ in tqdm(as_completed(futures), total=len(futures)):
-                pass
+            for fut in tqdm(as_completed(futures), total=len(futures)):
+                fut.result()
     finally:
         os.chdir(original_cwd)
     elapsed = datetime.datetime.now() - time_start
