@@ -142,8 +142,21 @@ def _get_event_positions(
 
 # ── Chart helpers ─────────────────────────────────────────────────────────────
 
+def _auto_km(col: str, values: list) -> tuple[list, str]:
+    """If column is in [m] and abs-max ≥ 10 km, rescale to km and rename label."""
+    if not col.endswith('[m]'):
+        return values, col
+    vmax = max((abs(v) for v in values if v is not None and not pd.isna(v)), default=0.0)
+    if vmax < 10_000.0:
+        return values, col
+    scaled = [None if v is None or pd.isna(v) else v * 1e-3 for v in values]
+    return scaled, col[:-3] + '[km]'
+
+
 def _echart_opts(df: pd.DataFrame, x_col: str, y_col: str) -> dict:
-    data = list(zip(df[x_col].tolist(), df[y_col].tolist()))
+    xs, x_label = _auto_km(x_col, df[x_col].tolist())
+    ys, y_label = _auto_km(y_col, df[y_col].tolist())
+    data = list(zip(xs, ys))
     d = _D
     return {
         'backgroundColor': d['bg'],
@@ -176,7 +189,7 @@ def _echart_opts(df: pd.DataFrame, x_col: str, y_col: str) -> dict:
         ],
         'grid': {'top': '6%', 'left': '10%', 'right': '3%', 'bottom': '18%'},
         'xAxis': {
-            'type': 'value', 'name': x_col,
+            'type': 'value', 'name': x_label,
             'nameLocation': 'middle', 'nameGap': 28,
             'nameTextStyle': {'color': d['ax'], 'fontSize': 11},
             'axisLabel': {'color': d['ax'], 'fontSize': 10},
@@ -184,7 +197,7 @@ def _echart_opts(df: pd.DataFrame, x_col: str, y_col: str) -> dict:
             'splitLine': {'lineStyle': {'color': d['grid'], 'type': 'dashed'}},
         },
         'yAxis': {
-            'type': 'value', 'name': y_col,
+            'type': 'value', 'name': y_label,
             'nameLocation': 'middle', 'nameGap': 55, 'nameRotate': 90,
             'nameTextStyle': {'color': d['ax'], 'fontSize': 11},
             'axisLabel': {'color': d['ax'], 'fontSize': 10},
@@ -192,7 +205,7 @@ def _echart_opts(df: pd.DataFrame, x_col: str, y_col: str) -> dict:
             'splitLine': {'lineStyle': {'color': d['grid'], 'type': 'dashed'}},
         },
         'series': [{
-            'type': 'line', 'name': y_col, 'data': data,
+            'type': 'line', 'name': y_label, 'data': data,
             'showSymbol': False,
             'lineStyle': {'color': d['line'], 'width': 2},
             'sampling': 'lttb',
