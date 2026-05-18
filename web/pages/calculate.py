@@ -992,7 +992,7 @@ def calculate_page(request: Request):
                 result_area.clear()
                 start_calculation(proj, mode, max_thread_check.value)
 
-            _st = {'status': 'idle', 'nav_cancelled': False}
+            _st = {'status': current_job().status}
 
             def _refresh_progress():
                 job    = current_job()
@@ -1011,7 +1011,6 @@ def calculate_page(request: Request):
                         progress_label.set_text('Completed.')
                         progress_bar.set_value(1.0)
                         result_area.clear()
-                        _st['nav_cancelled'] = False
                         _cid = job.calc_id
                         with result_area:
                             ui.notify('Calculation completed!', type='positive')
@@ -1019,17 +1018,6 @@ def calculate_page(request: Request):
                                 'View Results',
                                 on_click=lambda cid=_cid: ui.navigate.to(f'/result/{cid}'),
                             ).props('color=positive icon=open_in_new').classes('w-full q-mb-xs')
-                            cnt_lbl = ui.label('Auto-navigating in 3s…').classes('text-caption text-grey')
-
-                            def _cancel_nav():
-                                _st['nav_cancelled'] = True
-                                cnt_lbl.set_text('Navigation cancelled.')
-                            ui.button('Stay here', on_click=_cancel_nav).props('flat dense').classes('text-caption')
-
-                        def _do_nav(cid=_cid):
-                            if not _st['nav_cancelled']:
-                                ui.navigate.to(f'/result/{cid}')
-                        ui.timer(3.0, _do_nav, once=True)
 
                     elif status == 'failed':
                         run_btn.set_visibility(True)
