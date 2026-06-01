@@ -132,15 +132,22 @@ def get_constant_xcg(rocket_param):
 def set_constant_xcg(rocket_param, xcg):
     rocket_param['Constant X-C.G.']['Constant X-C.G. from BodyTail [mm]'] = xcg
     return rocket_param
+# v4.3.0+: lateral CG offset lives in the dedicated top-level "C.G. Offset" block.
+# Reads fall back to the legacy location nested under "Constant X-C.G." (still
+# accepted by the solver) so configs written by older Workbench versions keep working.
 def get_cg_offset_y(rocket_param):
+    if 'C.G. Offset' in rocket_param:
+        return rocket_param['C.G. Offset'].get('y-C.G. Offset [mm]', 0.0)
     return rocket_param.get('Constant X-C.G.', {}).get('y-C.G. Offset [mm]', 0.0)
 def set_cg_offset_y(rocket_param, val):
-    rocket_param['Constant X-C.G.']['y-C.G. Offset [mm]'] = val
+    rocket_param.setdefault('C.G. Offset', {})['y-C.G. Offset [mm]'] = val
     return rocket_param
 def get_cg_offset_z(rocket_param):
+    if 'C.G. Offset' in rocket_param:
+        return rocket_param['C.G. Offset'].get('z-C.G. Offset [mm]', 0.0)
     return rocket_param.get('Constant X-C.G.', {}).get('z-C.G. Offset [mm]', 0.0)
 def set_cg_offset_z(rocket_param, val):
-    rocket_param['Constant X-C.G.']['z-C.G. Offset [mm]'] = val
+    rocket_param.setdefault('C.G. Offset', {})['z-C.G. Offset [mm]'] = val
     return rocket_param
 
 def moi_file_is_enable(rocket_param):

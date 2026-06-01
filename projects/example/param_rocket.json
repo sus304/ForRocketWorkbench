@@ -23,7 +23,9 @@
         "X-C.G. File Path": ""
     },
     "Constant X-C.G.": {
-        "Constant X-C.G. from BodyTail [mm]": 1800.0,
+        "Constant X-C.G. from BodyTail [mm]": 1800.0
+    },
+    "C.G. Offset": {
         "y-C.G. Offset [mm]": 0.0,
         "z-C.G. Offset [mm]": 0.0
     },

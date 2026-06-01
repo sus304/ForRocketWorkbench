@@ -166,6 +166,9 @@ def _build_rocket_form(data: dict, container):
     gj     = data.get('Gas Jet', {})
     pa     = data.get('Program Attitude', {})
     xcg_c  = data.get('Constant X-C.G.', {})
+    # v4.3.0+ keeps the lateral CG offset in a dedicated "C.G. Offset" block;
+    # fall back to the legacy nested keys under "Constant X-C.G." for old files.
+    cg_off = data.get('C.G. Offset', xcg_c)
     poi_c  = data.get('Constant Product of Inertia', {})
     poi_f  = data.get('Product of Inertia File', {})
 
@@ -210,8 +213,8 @@ def _build_rocket_form(data: dict, container):
                 'X-C.G.', 'Constant [mm]', 1800.0, '%.2f',
             )
             with ui.grid(columns=2).classes('w-full').bind_visibility_from(en_xcg, 'value', backward=lambda v: not v):
-                cg_off_y = ui.number('y-C.G. Offset [mm]', value=xcg_c.get('y-C.G. Offset [mm]', 0.0), format='%.4f')
-                cg_off_z = ui.number('z-C.G. Offset [mm]', value=xcg_c.get('z-C.G. Offset [mm]', 0.0), format='%.4f')
+                cg_off_y = ui.number('y-C.G. Offset [mm]', value=cg_off.get('y-C.G. Offset [mm]', 0.0), format='%.4f')
+                cg_off_z = ui.number('z-C.G. Offset [mm]', value=cg_off.get('z-C.G. Offset [mm]', 0.0), format='%.4f')
 
         mi_c = data.get('Constant M.I.', {})
         mi_f = data.get('M.I. File', {})
@@ -334,8 +337,8 @@ def _build_rocket_form(data: dict, container):
         }
         r['Enable X-C.G. File'] = en_xcg.value
         r['X-C.G. File']     = {'X-C.G. File Path': xcg_file.value}
-        r['Constant X-C.G.'] = {
-            'Constant X-C.G. from BodyTail [mm]': xcg_const.value,
+        r['Constant X-C.G.'] = {'Constant X-C.G. from BodyTail [mm]': xcg_const.value}
+        r['C.G. Offset'] = {
             'y-C.G. Offset [mm]': cg_off_y.value,
             'z-C.G. Offset [mm]': cg_off_z.value,
         }
