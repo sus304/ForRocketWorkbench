@@ -53,12 +53,28 @@ def post_summary(df_all, file_prefix):
     downrange_landing = np.array(df_all["Downrange [m]"])[-1]
     pos_landing = [float(np.array(df_all["Latitude [deg]"])[-1]), float(np.array(df_all["Longitude [deg]"])[-1])]
 
+    # Spin stability / roll-pitch resonance diagnostics
+    total_aoa_launch_clear = float(df_all["TotalAoA [deg]"][index_launch_clear])
+    peak_total_aoa = float(np.max(df_all["TotalAoA [deg]"][:index_apogee]))
+
+    spin_rate_log = df_all["AngleVelx [deg/s]"]
+    peak_spin_rate = float(np.max(np.abs(spin_rate_log[:index_apogee])))
+    burning_log = np.array(df_all["Burning [0/1]"])
+    burnout_indices = np.where(burning_log == 1)[0]
+    spin_rate_burnout = float(spin_rate_log.iloc[int(burnout_indices[-1])]) if len(burnout_indices) > 0 else float('nan')
+
+    min_sg = float(np.min(df_all["GyroStabilityFactor Sg [-]"][:index_apogee]))
+    min_resonance_ratio = float(np.min(df_all["ResonanceRatio [-]"][:index_apogee]))
+    max_trim_aoa = float(np.max(df_all["TrimAoA [deg]"][:index_apogee]))
+    max_lateral_aero_load = float(np.max(df_all["LateralAeroLoad [N]"][:index_apogee]))
+
     txt = open(file_prefix + '_summary.txt', mode='w')
     txt.writelines(['Launcher Clear X+,', str(round(time_launch_clear, 3)), '[s]\n'])
     txt.writelines(['Launcher Clear Acceleration,', str(round(acc_launch_clear, 3)), '[G]\n'])
     txt.writelines(['Launcher Clear Velocity,', str(round(vel_launch_clear, 3)), '[m/s]\n'])
     txt.writelines(['Launcher Clear AoA,', str(round(aoa_launch_clear, 3)), '[deg]\n'])
     txt.writelines(['Launcher Clear AoS,', str(round(aos_launch_clear, 3)), '[deg]\n'])
+    txt.writelines(['Launcher Clear Total AoA,', str(round(total_aoa_launch_clear, 3)), '[deg]\n'])
     txt.writelines(['Max Q X+,', str(round(time_maxq, 3)), '[s]\n'])
     txt.writelines(['Max Q Altitude,', str(round(altitude_maxq, 3)), '[m]\n'])
     txt.writelines(['Max Q Velocity,', str(round(vel_maxq, 3)), '[m/s]\n'])
@@ -82,6 +98,13 @@ def post_summary(df_all, file_prefix):
     txt.writelines(['Landing X+,', str(round(time_landing, 3)), '[s]\n'])
     txt.writelines(['Landing Downrange,', str(round(downrange_landing, 3)), '[m]\n'])
     txt.writelines(['Landing Point,', str(pos_landing), '\n'])
+    txt.writelines(['Peak Total AoA,', str(round(peak_total_aoa, 3)), '[deg]\n'])
+    txt.writelines(['Peak Spin Rate,', str(round(peak_spin_rate, 3)), '[deg/s]\n'])
+    txt.writelines(['Spin Rate at Burnout,', str(round(spin_rate_burnout, 3) if not np.isnan(spin_rate_burnout) else 'nan'), '[deg/s]\n'])
+    txt.writelines(['Min GyroStabilityFactor Sg,', str(round(min_sg, 4)), '[-]\n'])
+    txt.writelines(['Min ResonanceRatio,', str(round(min_resonance_ratio, 4)), '[-]\n'])
+    txt.writelines(['Max TrimAoA,', str(round(max_trim_aoa, 3)), '[deg]\n'])
+    txt.writelines(['Max LateralAeroLoad,', str(round(max_lateral_aero_load, 3)), '[N]\n'])
     txt.close()
 
 
@@ -112,10 +135,50 @@ def post_summary_for_montecarlo(df_all):
     downrange_landing = np.array(df_all["Downrange [m]"])[-1]
     pos_landing = [float(np.array(df_all["Latitude [deg]"])[-1]), float(np.array(df_all["Longitude [deg]"])[-1])]
 
-    return dynamic_pressure_maxq, mach_maxmach, time_apogee, altitude_apogee, vel_apogee, pos_landing, downrange_landing
+    # Launch clear: first step where gravity force becomes significant
+    fz_gravity_log = df_all["Fz-gravity [N]"]
+    index_launch_clear = int(np.argmax(np.abs(fz_gravity_log) >= 0.1))
+    aoa_launch_clear = float(df_all["TotalAoA [deg]"].iloc[index_launch_clear])
+
+    # Peak total AoA during ascent (now directly available from ForRocket)
+    total_aoa_log = df_all["TotalAoA [deg]"]
+    peak_total_aoa = float(np.max(total_aoa_log[:index_apogee]))
+
+    # Spin rate (body x-axis roll rate)
+    spin_rate_log = df_all["AngleVelx [deg/s]"]
+    peak_spin_rate = float(np.max(np.abs(spin_rate_log[:index_apogee])))
+
+    # Spin rate at burnout: last timestep where Burning == 1
+    burning_log = np.array(df_all["Burning [0/1]"])
+    burnout_indices = np.where(burning_log == 1)[0]
+    if len(burnout_indices) > 0:
+        index_burnout = int(burnout_indices[-1])
+        spin_rate_burnout = float(spin_rate_log.iloc[index_burnout])
+    else:
+        spin_rate_burnout = float('nan')
+
+    # Roll-pitch resonance diagnostics
+    sg_log = df_all["GyroStabilityFactor Sg [-]"]
+    min_sg = float(np.min(sg_log[:index_apogee]))
+
+    resonance_ratio_log = df_all["ResonanceRatio [-]"]
+    min_resonance_ratio = float(np.min(resonance_ratio_log[:index_apogee]))
+
+    max_trim_aoa = float(np.max(df_all["TrimAoA [deg]"][:index_apogee]))
+    max_lateral_aero_load = float(np.max(df_all["LateralAeroLoad [N]"][:index_apogee]))
+
+    return (dynamic_pressure_maxq, mach_maxmach, time_apogee, altitude_apogee, vel_apogee,
+            pos_landing, downrange_landing,
+            peak_total_aoa, aoa_launch_clear, peak_spin_rate, spin_rate_burnout,
+            min_sg, min_resonance_ratio, max_trim_aoa, max_lateral_aero_load)
 
 
-def post_3sigma_summary(case_number_list, maxQ_Q_list, mach_list, time_apogee_list, altitude_list, vel_apogee_list, downrange_impact_list, file_prefix):
+def post_3sigma_summary(case_number_list, maxQ_Q_list, mach_list, time_apogee_list, altitude_list,
+                        vel_apogee_list, downrange_impact_list, file_prefix,
+                        peak_total_aoa_list=None, aoa_launch_clear_list=None,
+                        peak_spin_rate_list=None, spin_rate_burnout_list=None,
+                        min_sg_list=None, min_resonance_ratio_list=None,
+                        max_trim_aoa_list=None, max_lateral_aero_load_list=None):
     case_count = len(case_number_list)
     if case_count < 1000:
         return
@@ -127,53 +190,40 @@ def post_3sigma_summary(case_number_list, maxQ_Q_list, mach_list, time_apogee_li
         return
     high_index = -low_index - 1
 
-    ind = np.argsort(maxQ_Q_list)
-    case_number_sorted_list = np.array(case_number_list)[ind]
-    maxq_sorted_list = np.array(maxQ_Q_list)[ind]
-    txt.writelines(['DynamicPressure 3sigma High Case,', str(case_number_sorted_list[high_index]), '\n'])
-    txt.writelines(['DynamicPressure 3sigma High,', str(round(maxq_sorted_list[high_index], 3)), '[kPa]\n'])
-    txt.writelines(['DynamicPressure 3sigma Low Case,', str(case_number_sorted_list[low_index]), '\n'])
-    txt.writelines(['DynamicPressure 3sigma Low,', str(round(maxq_sorted_list[low_index], 3)), '[kPa]\n'])
+    def _write_3sigma(label, values, unit):
+        ind = np.argsort(values)
+        cases_sorted = np.array(case_number_list)[ind]
+        vals_sorted = np.array(values)[ind]
+        txt.writelines([f'{label} 3sigma High Case,', str(cases_sorted[high_index]), '\n'])
+        txt.writelines([f'{label} 3sigma High,', str(round(float(vals_sorted[high_index]), 3)), f'[{unit}]\n'])
+        txt.writelines([f'{label} 3sigma Low Case,', str(cases_sorted[low_index]), '\n'])
+        txt.writelines([f'{label} 3sigma Low,', str(round(float(vals_sorted[low_index]), 3)), f'[{unit}]\n'])
 
-    ind = np.argsort(mach_list)
-    case_number_sorted_list = np.array(case_number_list)[ind]
-    mach_sorted_list = np.array(mach_list)[ind]
-    txt.writelines(['MachNumber 3sigma High Case,', str(case_number_sorted_list[high_index]), '\n'])
-    txt.writelines(['MachNumber 3sigma High,', str(round(mach_sorted_list[high_index], 3)), '[-]\n'])
-    txt.writelines(['MachNumber 3sigma Low Case,', str(case_number_sorted_list[low_index]), '\n'])
-    txt.writelines(['MachNumber 3sigma Low,', str(round(mach_sorted_list[low_index], 3)), '[-]\n'])
+    _write_3sigma('DynamicPressure', maxQ_Q_list, 'kPa')
+    _write_3sigma('MachNumber', mach_list, '-')
+    _write_3sigma('Apogee X+', time_apogee_list, 's')
+    _write_3sigma('Apogee Altitude', altitude_list, 'm')
+    _write_3sigma('Apogee Air Velocity', vel_apogee_list, 'm/s')
+    _write_3sigma('Impact Downrange', downrange_impact_list, 'm')
 
-    ind = np.argsort(time_apogee_list)
-    case_number_sorted_list = np.array(case_number_list)[ind]
-    time_apogee_sorted_list = np.array(time_apogee_list)[ind]
-    txt.writelines(['Apogee X+ 3sigma High Case,', str(case_number_sorted_list[high_index]), '\n'])
-    txt.writelines(['Apogee X+ 3sigma High,', str(round(time_apogee_sorted_list[high_index], 3)), '[s]\n'])
-    txt.writelines(['Apogee X+ 3sigma Low Case,', str(case_number_sorted_list[low_index]), '\n'])
-    txt.writelines(['Apogee X+ 3sigma Low,', str(round(time_apogee_sorted_list[low_index], 3)), '[s]\n'])
-
-    ind = np.argsort(altitude_list)
-    case_number_sorted_list = np.array(case_number_list)[ind]
-    altitude_sorted_list = np.array(altitude_list)[ind]
-    txt.writelines(['Apogee Altitude 3sigma High Case,', str(case_number_sorted_list[high_index]), '\n'])
-    txt.writelines(['Apogee Altitude 3sigma High,', str(round(altitude_sorted_list[high_index], 3)), '[m]\n'])
-    txt.writelines(['Apogee Altitude 3sigma Low Case,', str(case_number_sorted_list[low_index]), '\n'])
-    txt.writelines(['Apogee Altitude 3sigma Low,', str(round(altitude_sorted_list[low_index], 3)), '[m]\n'])
-
-    ind = np.argsort(vel_apogee_list)
-    case_number_sorted_list = np.array(case_number_list)[ind]
-    vel_apogee_sorted_list = np.array(vel_apogee_list)[ind]
-    txt.writelines(['Apogee Air Velocity 3sigma High Case,', str(case_number_sorted_list[high_index]), '\n'])
-    txt.writelines(['Apogee Air Velocity 3sigma High,', str(round(vel_apogee_sorted_list[high_index], 3)), '[m/s]\n'])
-    txt.writelines(['Apogee Air Velocity 3sigma Low Case,', str(case_number_sorted_list[low_index]), '\n'])
-    txt.writelines(['Apogee Air Velocity 3sigma Low,', str(round(vel_apogee_sorted_list[low_index], 3)), '[m/s]\n'])
-
-    ind = np.argsort(downrange_impact_list)
-    case_number_sorted_list = np.array(case_number_list)[ind]
-    downrange_impact_sorted_list = np.array(downrange_impact_list)[ind]
-    txt.writelines(['Impact Downrange 3sigma High Case,', str(case_number_sorted_list[high_index]), '\n'])
-    txt.writelines(['Impact Downrange 3sigma High,', str(round(downrange_impact_sorted_list[high_index], 3)), '[m]\n'])
-    txt.writelines(['Impact Downrange 3sigma Low Case,', str(case_number_sorted_list[low_index]), '\n'])
-    txt.writelines(['Impact Downrange 3sigma Low,', str(round(downrange_impact_sorted_list[low_index], 3)), '[m]\n'])
+    if peak_total_aoa_list is not None:
+        _write_3sigma('Peak Total AoA', peak_total_aoa_list, 'deg')
+    if aoa_launch_clear_list is not None:
+        _write_3sigma('Launch Clear Total AoA', aoa_launch_clear_list, 'deg')
+    if peak_spin_rate_list is not None:
+        _write_3sigma('Peak Spin Rate', peak_spin_rate_list, 'deg/s')
+    if spin_rate_burnout_list is not None:
+        valid = [v for v in spin_rate_burnout_list if not np.isnan(v)]
+        if valid:
+            _write_3sigma('Spin Rate at Burnout', spin_rate_burnout_list, 'deg/s')
+    if min_sg_list is not None:
+        _write_3sigma('Min GyroStabilityFactor Sg', min_sg_list, '-')
+    if min_resonance_ratio_list is not None:
+        _write_3sigma('Min ResonanceRatio', min_resonance_ratio_list, '-')
+    if max_trim_aoa_list is not None:
+        _write_3sigma('Max TrimAoA', max_trim_aoa_list, 'deg')
+    if max_lateral_aero_load_list is not None:
+        _write_3sigma('Max LateralAeroLoad', max_lateral_aero_load_list, 'N')
 
     txt.close()
 

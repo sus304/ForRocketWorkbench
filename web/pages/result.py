@@ -19,6 +19,10 @@ _PRESETS = [
     ('AoA',         'Time [s]',      'AoA [deg]'),
     ('Downrange',   'Time [s]',      'Downrange [m]'),
     ('Trajectory',  'Downrange [m]', 'Altitude [m]'),
+    ('Total AoA',   'Time [s]',      'TotalAoA [deg]'),
+    ('Resonance Λ', 'Time [s]',      'ResonanceRatio [-]'),
+    ('Gyro Sg',     'Time [s]',      'GyroStabilityFactor Sg [-]'),
+    ('Spin Freq',   'Time [s]',      'SpinFreq [Hz]'),
 ]
 
 _D = {
@@ -674,10 +678,18 @@ def _find_mc_result_tables(result_dir: str) -> list[tuple[str, str]]:
 
 # (col, display, raw_unit, display_unit, scale, color)
 _MC_PARAMS = [
-    ('altitude_apogee',  'Apogee Alt.',  'm',   'km',  1e-3, '#42a5f5'),
-    ('maxQ',             'Max Q',        'kPa', 'kPa', 1.0,  '#ffa726'),
-    ('mach',             'Max Mach',     '-',   '-',   1.0,  '#ab47bc'),
-    ('downrange_impact', 'Downrange',    'm',   'km',  1e-3, '#66bb6a'),
+    ('altitude_apogee',         'Apogee Alt.',     'm',    'km',    1e-3, '#42a5f5'),
+    ('maxQ',                    'Max Q',           'kPa',  'kPa',   1.0,  '#ffa726'),
+    ('mach',                    'Max Mach',        '-',    '-',     1.0,  '#ab47bc'),
+    ('downrange_impact',        'Downrange',       'm',    'km',    1e-3, '#66bb6a'),
+    ('peak_total_aoa',          'Peak TotalAoA',   'deg',  'deg',   1.0,  '#ff6b9d'),
+    ('aoa_launch_clear',        'AoA LaunchClear', 'deg',  'deg',   1.0,  '#ffc75f'),
+    ('peak_spin_rate',          'Peak SpinRate',   'deg/s','deg/s', 1.0,  '#845ef7'),
+    ('spin_rate_burnout',       'SpinRate Burnout','deg/s','deg/s', 1.0,  '#cc5de8'),
+    ('min_sg',                  'Min Sg',          '-',    '-',     1.0,  '#20c997'),
+    ('min_resonance_ratio',     'Min Res. Λ',      '-',    '-',     1.0,  '#ff922b'),
+    ('max_trim_aoa',            'Max TrimAoA',     'deg',  'deg',   1.0,  '#748ffc'),
+    ('max_lateral_aero_load',   'Max Lat. Load',   'N',    'N',     1.0,  '#ffa8a8'),
 ]
 
 
