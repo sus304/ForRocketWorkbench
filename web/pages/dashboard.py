@@ -6,7 +6,7 @@ from nicegui import app, ui
 from web.db.database import get_session
 from web.db.models import Calculation
 from web.pages.shared import build_header
-from web.services import calc_service
+from web.services import calc_service, import_service
 from web.services.history_service import delete_calculations, filter_rows
 from web.services.project_service import scan_projects
 
@@ -145,6 +145,66 @@ def dashboard():
                 ui.button('Stop server', on_click=do_stop).props('color=negative')
         dialog.open()
 
+    def import_result_dialog():
+        with ui.dialog() as dialog, ui.card().style('min-width:540px'):
+            ui.label('Import existing result').classes('text-h6')
+            ui.label('Register a work directory produced by runner.py (CLI) into the '
+                     'history. No re-computation — the result page reads it directly.') \
+                .classes('text-caption text-grey')
+
+            path_in = (ui.input('Work directory path',
+                                placeholder='/home/.../projects/example/work_montecarlo')
+                       .props('dense outlined clearable').classes('w-full q-mt-sm'))
+            preview = ui.column().classes('w-full q-mt-xs')
+            proj_select = (ui.select(['(auto / none)'] + project_names, value='(auto / none)',
+                                     label='Project')
+                           .props('dense outlined').classes('w-full q-mt-sm'))
+
+            state = {'abs_dir': ''}
+
+            def do_inspect():
+                preview.clear()
+                info = import_service.inspect_result(path_in.value or '')
+                state['abs_dir'] = info['abs_dir']
+                with preview:
+                    if info['abs_dir']:
+                        ui.label(f"Resolved: {info['abs_dir']}").classes('text-caption text-grey')
+                    if info['error']:
+                        ui.label(info['error']).classes('text-negative text-caption')
+                    if info['ok']:
+                        ui.label(f"Mode: {info['mode']}    Model ID: {info['model_id'] or '—'}") \
+                            .classes('text-body2 text-weight-medium')
+                        if info['suggested_project']:
+                            ui.label(f"Auto-linked project: {info['suggested_project']}") \
+                                .classes('text-caption text-grey')
+                        if info['already_registered']:
+                            ui.label(f"⚠ Already registered as calc #{info['existing_id']} — "
+                                     "import will be skipped.").classes('text-warning text-caption')
+                if info.get('suggested_project') in project_names:
+                    proj_select.set_value(info['suggested_project'])
+                import_btn.set_enabled(info['ok'] and not info['already_registered'])
+
+            def do_import():
+                proj = proj_select.value
+                project_name = None if proj == '(auto / none)' else proj
+                calc_id, err = import_service.register_result(
+                    state['abs_dir'] or path_in.value, project_name)
+                if err:
+                    ui.notify(err, type='warning')
+                    return
+                ui.notify(f'Imported as calc #{calc_id}.', type='positive')
+                dialog.close()
+                refresh_all()
+
+            path_in.on('blur', lambda e: do_inspect())
+
+            with ui.row().classes('q-mt-md justify-end full-width q-gutter-sm'):
+                ui.button('Inspect', on_click=do_inspect).props('flat')
+                ui.button('Cancel', on_click=dialog.close).props('flat')
+                import_btn = ui.button('Import', on_click=do_import).props('color=primary')
+                import_btn.set_enabled(False)
+        dialog.open()
+
     table = None
 
     with ui.row().classes('w-full h-full no-wrap'):
@@ -170,6 +230,9 @@ def dashboard():
                 ui.space()
                 (ui.button('+ New Calculation', on_click=lambda: ui.navigate.to('/calculate'))
                  .props('color=primary'))
+                (ui.button('Import Result', icon='download', on_click=import_result_dialog)
+                 .props('color=primary outline')
+                 .tooltip('Register a CLI (runner.py) result directory into the history'))
                 (ui.button('Stop Server', icon='power_settings_new', on_click=confirm_stop_server)
                  .props('color=negative outline')
                  .tooltip('Shut down the Workbench server process'))
