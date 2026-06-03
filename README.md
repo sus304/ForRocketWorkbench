@@ -12,7 +12,7 @@
 | 項目 | バージョン |
 |---|---|
 | Python | 3.10 以上 |
-| ForRocket バイナリ | v4.3.0 以上 |
+| ForRocket バイナリ | v4.4.0 以上 |
 
 ### Python 依存パッケージ
 
@@ -205,7 +205,9 @@ URL パラメータ：
 | `Flight Start Time [s]` | 飛翔開始時刻 |
 | `Engine Ignittion Time [s]` | エンジン点火時刻 |
 | `Flight End Time [s]` | シミュレーション終了時刻 |
-| `Time Step [s]` | 積分ステップ |
+| `Time Step [s]` | 適応ステップ積分の最大刻み（上限） |
+| `Solver Tolerance Abs` | 適応ステップ積分の絶対許容誤差（任意・v4.4.0+）。姿勢など小振幅状態の精度を支配。Workbench 既定 `1.0e-8`（ソルバ内部既定は `1.0e-6`） |
+| `Solver Tolerance Rel` | 適応ステップ積分の相対許容誤差（任意・v4.4.0+）。ECI 位置精度と計算速度を支配。Workbench 既定 `1.0e-6` |
 | `Enable Auto Terminate SubOrbital Flight` | 着地検出で自動終了 |
 | `Enable Rail-Launcher Launch` / `Rail Launcher.Length [m]` | ランチレール使用 |
 | `Enable Engine Cutoff` / `Cutoff.Cutoff Time [s]` | 強制カットオフ |

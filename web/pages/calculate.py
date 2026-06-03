@@ -460,6 +460,15 @@ def _build_soe_form(data: dict, container):
                 dt       = ui.number('Time Step [s]',            value=data.get('Time Step [s]',            0.1),   format='%.4f')
                 en_auto  = ui.switch('Auto Terminate SubOrbital', value=data.get('Enable Auto Terminate SubOrbital Flight', True))
 
+        # Adaptive Solver Tolerance (v4.4.0+): 適応ステップ積分器の許容誤差。
+        # Abs は姿勢(小振幅状態)精度、Rel は ECI 位置精度と計算速度を支配。
+        # 既定 Abs=1e-8/Rel=1e-6 は高速化と姿勢ロバスト性のバランス点。
+        with ui.card().classes('w-full'):
+            ui.label('Adaptive Solver Tolerance').classes('text-subtitle2')
+            with ui.grid(columns=2).classes('w-full'):
+                tol_abs = ui.number('Solver Tolerance Abs', value=data.get('Solver Tolerance Abs', 1.0e-8), format='%.1e')
+                tol_rel = ui.number('Solver Tolerance Rel', value=data.get('Solver Tolerance Rel', 1.0e-6), format='%.1e')
+
         with ui.card().classes('w-full'):
             ui.label('Rail Launcher').classes('text-subtitle2')
             en_rail  = ui.switch('Enable Rail-Launcher', value=data.get('Enable Rail-Launcher Launch', True))
@@ -535,6 +544,8 @@ def _build_soe_form(data: dict, container):
         }
         r['Flight End Time [s]'] = t_end.value
         r['Time Step [s]']        = dt.value
+        r['Solver Tolerance Abs'] = tol_abs.value
+        r['Solver Tolerance Rel'] = tol_rel.value
         r['Enable Auto Terminate SubOrbital Flight'] = en_auto.value
         return r
 
