@@ -658,6 +658,10 @@ def _build_montecarlo_form(data: dict, container):
             ui.label('Monte Carlo Settings').classes('text-subtitle2')
             case_count = ui.number('Case Count', value=data.get('MonteCarlo Case Count', 300),
                                    min=1, step=100, format='%.0f')
+            output_all_logs = ui.switch('Output all case logs',
+                                        value=data.get('Output All Case Logs', True))
+            ui.label('Off = statistics only (per-case flight logs are discarded to save time/disk)') \
+                .classes('text-caption text-grey')
 
         with ui.card().classes('w-full'):
             ui.label('Error Parameters').classes('text-subtitle2')
@@ -707,6 +711,7 @@ def _build_montecarlo_form(data: dict, container):
                 }
         return {
             'MonteCarlo Case Count': int(case_count.value or 300),
+            'Output All Case Logs': bool(output_all_logs.value),
             'Error Parameters': ep_out,
         }
 

@@ -1,5 +1,6 @@
 {
     "MonteCarlo Case Count": 300,
+    "Output All Case Logs": true,
 
     "Error Parameters": {
         "Wind": {

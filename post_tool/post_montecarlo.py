@@ -1,3 +1,4 @@
+import os
 import glob
 import numpy as np
 import pandas as pd
@@ -10,6 +11,19 @@ from post_tool.post_kml import dump_montecarlo_points_kml, dump_montecarlo_envel
 
 from path_define import chdir
 
+# Statistics-only mode: per-case metrics are extracted during the run and persisted
+# here (one row per case), so the heavy per-case flight logs need not be kept.
+CASE_METRICS_FILE = 'case_metrics.csv'
+
+# Column order mirrors the per-case tuple from post_summary_for_montecarlo(),
+# with pos_landing flattened into lat_impact / lon_impact.
+_CASE_METRICS_HEADER = [
+    'type', 'case', 'maxQ', 'mach', 'time_apogee', 'altitude_apogee', 'vel_apogee',
+    'lat_impact', 'lon_impact', 'downrange_impact',
+    'peak_total_aoa', 'aoa_launch_clear', 'peak_spin_rate', 'spin_rate_burnout',
+    'min_sg', 'min_resonance_ratio', 'max_trim_aoa', 'max_lateral_aero_load',
+]
+
 _MC_COLS = [
     'Time [s]', 'Altitude [m]', 'Downrange [m]',
     'Latitude [deg]', 'Longitude [deg]',
@@ -20,6 +34,34 @@ _MC_COLS = [
     'GyroStabilityFactor Sg [-]', 'ResonanceRatio [-]',
     'TrimAoA [deg]', 'LateralAeroLoad [N]',
 ]
+
+
+def write_case_metrics(work_dir, collected):
+    """Persist per-case Monte Carlo metrics (statistics-only mode) to CASE_METRICS_FILE.
+
+    collected: list of (case_number, is_ballistic, metrics_tuple), where metrics_tuple
+    is the return value of post_summary_for_montecarlo() for that case's flight log.
+    Written to work_dir so the later post phase can rebuild the statistics without the
+    (already deleted) per-case flight logs.
+    """
+    rows = []
+    for case_num, is_ballistic, m in collected:
+        (dyn_q, mach, t_apogee, alt, vel_apogee, pos_landing, downrange,
+         peak_aoa, aoa_lc, peak_spin, spin_bo, min_sg, min_res, max_trim, max_lat) = m
+        rows.append({
+            'type': 'ballistic' if is_ballistic else 'stage1',
+            'case': int(case_num), 'maxQ': dyn_q, 'mach': mach,
+            'time_apogee': t_apogee, 'altitude_apogee': alt, 'vel_apogee': vel_apogee,
+            'lat_impact': pos_landing[0], 'lon_impact': pos_landing[1],
+            'downrange_impact': downrange,
+            'peak_total_aoa': peak_aoa, 'aoa_launch_clear': aoa_lc,
+            'peak_spin_rate': peak_spin, 'spin_rate_burnout': spin_bo,
+            'min_sg': min_sg, 'min_resonance_ratio': min_res,
+            'max_trim_aoa': max_trim, 'max_lateral_aero_load': max_lat,
+        })
+    df = pd.DataFrame(rows, columns=_CASE_METRICS_HEADER)
+    df.sort_values(['type', 'case'], inplace=True)
+    df.to_csv(os.path.join(work_dir, CASE_METRICS_FILE), index=False)
 
 
 def _process_one_case(log_file, kml_suffix=''):
@@ -104,7 +146,63 @@ def _save_impact_results(case_numbers, maxQ, max_mach, time_apogee, altitude, ve
                         min_sg, min_resonance_ratio, max_trim_aoa, max_lateral_aero_load)
 
 
+def _lists_from_metrics(sub_df):
+    """Rebuild the per-case metric lists (sorted by case) from a CASE_METRICS_FILE subframe.
+
+    Returns the same set of lists that _collect_case_results() produces, so the existing
+    _save_impact_results() can be reused unchanged.
+    """
+    sub_df = sub_df.sort_values('case')
+    impact_points = [[lat, lon] for lat, lon in zip(sub_df['lat_impact'], sub_df['lon_impact'])]
+    return {
+        'case_numbers':          sub_df['case'].astype(int).tolist(),
+        'maxQ':                  sub_df['maxQ'].tolist(),
+        'max_mach':              sub_df['mach'].tolist(),
+        'time_apogee':           sub_df['time_apogee'].tolist(),
+        'altitude':              sub_df['altitude_apogee'].tolist(),
+        'vel_apogee':            sub_df['vel_apogee'].tolist(),
+        'impact_points':         impact_points,
+        'downrange':             sub_df['downrange_impact'].tolist(),
+        'peak_total_aoa':        sub_df['peak_total_aoa'].tolist(),
+        'aoa_launch_clear':      sub_df['aoa_launch_clear'].tolist(),
+        'peak_spin_rate':        sub_df['peak_spin_rate'].tolist(),
+        'spin_rate_burnout':     sub_df['spin_rate_burnout'].tolist(),
+        'min_sg':                sub_df['min_sg'].tolist(),
+        'min_resonance_ratio':   sub_df['min_resonance_ratio'].tolist(),
+        'max_trim_aoa':          sub_df['max_trim_aoa'].tolist(),
+        'max_lateral_aero_load': sub_df['max_lateral_aero_load'].tolist(),
+    }
+
+
+def _save_from_metrics(d, prefix):
+    _save_impact_results(d['case_numbers'], d['maxQ'], d['max_mach'], d['time_apogee'],
+                         d['altitude'], d['vel_apogee'], d['downrange'], d['impact_points'], prefix,
+                         d['peak_total_aoa'], d['aoa_launch_clear'], d['peak_spin_rate'], d['spin_rate_burnout'],
+                         d['min_sg'], d['min_resonance_ratio'], d['max_trim_aoa'], d['max_lateral_aero_load'])
+
+
+def _post_montecarlo_from_metrics(montecarlo_work_dir):
+    """Statistics-only post: build result tables / KMLs / 3-sigma summary from
+    CASE_METRICS_FILE when the per-case flight logs were not kept."""
+    with chdir(montecarlo_work_dir):
+        df = pd.read_csv(CASE_METRICS_FILE)
+        nominal = df[df['type'] == 'stage1']
+        ballistic = df[df['type'] == 'ballistic']
+
+        if len(ballistic) > 0:
+            _save_from_metrics(_lists_from_metrics(nominal), 'decent')
+            _save_from_metrics(_lists_from_metrics(ballistic), 'ballistic')
+        else:
+            _save_from_metrics(_lists_from_metrics(nominal), '')
+
+
 def post_montecarlo(montecarlo_work_dir, montecarlo_calc_dir='cases/', max_thread_run=False):
+    # Statistics-only mode: per-case flight logs were extracted and deleted during the run,
+    # leaving only CASE_METRICS_FILE. Rebuild the statistics from it.
+    if os.path.exists(os.path.join(montecarlo_work_dir, CASE_METRICS_FILE)):
+        _post_montecarlo_from_metrics(montecarlo_work_dir)
+        return
+
     with chdir(montecarlo_work_dir):
         with chdir(montecarlo_calc_dir):
             log_file_list = glob.glob('*_flight_log.csv')

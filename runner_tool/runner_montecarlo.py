@@ -421,7 +421,36 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
 
     ## 実行部 ############################################################
     cases_dir = os.path.abspath(work_dir + '/' + calc_dir)
-    run_multi(cases_dir, case_solver_config_file_name_list, max_thread_run)
+
+    # 既定: 全ケースのフライトログを残す（従来動作）。
+    # False の場合は「統計のみ出力」モード: 1ケース完了ごとに統計を抽出してログを即削除し、
+    # 同時にディスク上に存在するログを抑える（解析時間・ディスク容量に制約がある場合向け）。
+    output_all_logs = montecarlo_config.get('Output All Case Logs', True)
+    if output_all_logs:
+        run_multi(cases_dir, case_solver_config_file_name_list, max_thread_run)
+    else:
+        import glob as _glob
+        import threading as _threading
+        import pandas as _pd
+        from post_tool.post_summary import post_summary_for_montecarlo
+        from post_tool.post_montecarlo import _MC_COLS, write_case_metrics
+
+        collected = []
+        collected_lock = _threading.Lock()
+
+        def _extract_and_delete(cdir, solver_config_file_name):
+            case_num = int(os.path.basename(solver_config_file_name).split('_', 1)[0])
+            for log_path in _glob.glob(os.path.join(cdir, f'{case_num}_*_stage1_flight_log.csv')):
+                is_ballistic = '_ballistic_' in os.path.basename(log_path)
+                df = _pd.read_csv(log_path, usecols=_MC_COLS)
+                metrics = post_summary_for_montecarlo(df)
+                with collected_lock:
+                    collected.append((case_num, is_ballistic, metrics))
+                os.remove(log_path)
+
+        run_multi(cases_dir, case_solver_config_file_name_list, max_thread_run,
+                  on_case_complete=_extract_and_delete)
+        write_case_metrics(os.path.abspath(work_dir), collected)
 
     print('Work Directory: ' + work_dir)
     ##############################################################
