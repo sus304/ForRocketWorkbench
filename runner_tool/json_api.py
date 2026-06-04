@@ -194,10 +194,19 @@ def set_constant_poi_iyz(rocket_param, val):
     return rocket_param
 def get_poi_file_ixy(rocket_param):
     return rocket_param.get('Product of Inertia File', {}).get('Ixy File Path', '')
+def set_poi_file_ixy(rocket_param, file_name):
+    rocket_param.setdefault('Product of Inertia File', {})['Ixy File Path'] = file_name
+    return rocket_param
 def get_poi_file_ixz(rocket_param):
     return rocket_param.get('Product of Inertia File', {}).get('Ixz File Path', '')
+def set_poi_file_ixz(rocket_param, file_name):
+    rocket_param.setdefault('Product of Inertia File', {})['Ixz File Path'] = file_name
+    return rocket_param
 def get_poi_file_iyz(rocket_param):
     return rocket_param.get('Product of Inertia File', {}).get('Iyz File Path', '')
+def set_poi_file_iyz(rocket_param, file_name):
+    rocket_param.setdefault('Product of Inertia File', {})['Iyz File Path'] = file_name
+    return rocket_param
 
 def xcp_file_is_enable(rocket_param):
     return rocket_param.get('Enable X-C.P. File')

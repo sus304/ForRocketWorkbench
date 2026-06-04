@@ -16,13 +16,18 @@ from runner_tool.json_api import (
     get_constant_thrust, set_constant_thrust,
     xcg_file_is_enable, get_xcg_file_name, set_xcg_file_name,
     moi_file_is_enable, get_moi_file_name, set_moi_file_name,
+    poi_file_is_enable,
 )
-from runner_tool.runner_montecarlo import _SCALAR_PARAM_REGISTRY
+from runner_tool.runner_montecarlo import _SCALAR_PARAM_REGISTRY, _POI_COMPONENTS, _POI_PARAM_NAMES
 from runner_tool.runner_multi import run_multi
 from path_define import runner_sensitivity_directory, make_unique_work_dir
 
 # TODO: Add XCG sensitivity support (file-mode: absolute offset, constant-mode: direct value).
 # TODO: Add MOI sensitivity support (file-mode: multiplier applied to all axes).
+
+# POI components keyed by parameter name -> (file-path getter, file-path setter, column label).
+# In file mode a per-case multiplier scales the component file; constant mode uses the registry.
+_POI_META = {name: (fget, fset, label) for name, fget, fset, label in _POI_COMPONENTS}
 
 _AVAILABLE_PARAMS = sorted(_SCALAR_PARAM_REGISTRY.keys()) + ['Thrust', 'CA']
 
@@ -40,6 +45,12 @@ def _compute_param_value(nominal, variation, unit, scale=1.0):
 
 def _get_nominal(pname, base_cfg, rocket_param, engine_param, unit):
     """Return nominal value for pname; validate file-mode unit constraints."""
+    if pname in _POI_PARAM_NAMES and poi_file_is_enable(rocket_param):
+        if unit != '%':
+            raise ValueError(
+                f'{pname} in file mode only supports Variation Unit "%", got "{unit}". '
+                'Use "%" to apply a scaling multiplier to the POI file.')
+        return 1.0  # nominal multiplier; new_val is the scale factor
     if pname in _SCALAR_PARAM_REGISTRY:
         cfg_key, getter, _ = _SCALAR_PARAM_REGISTRY[pname]
         return getter(base_cfg[cfg_key])
@@ -143,6 +154,17 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
         arr = np.loadtxt(get_thrust_file_name(engine_param), delimiter=',', skiprows=1)
         thrust_time_arr, thrust_vac_arr, thrust_mdot_arr = arr[:, 0], arr[:, 1], arr[:, 2]
 
+    # POI file-mode base curves, loaded once only for the components actually varied here
+    # (other components are just re-pathed to absolute below; loading them is unnecessary
+    # and would fail if their file paths are blank).
+    poi_base_by_name = {}
+    if poi_file_is_enable(rocket_param):
+        poi_varied = {pn for cdef in case_defs for pn, _, _ in cdef[7]} & _POI_PARAM_NAMES
+        for pname in poi_varied:
+            fget = _POI_META[pname][0]
+            arr = np.loadtxt(fget(rocket_param), delimiter=',', skiprows=1)
+            poi_base_by_name[pname] = (arr[:, 0], arr[:, 1])
+
     calc_dir = 'cases'
     os.mkdir(work_dir + '/' + calc_dir)
     prefix = work_dir + '/' + calc_dir + '/'
@@ -159,7 +181,15 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
         varied_pnames = {pname for pname, _, _ in effects_list}
 
         for pname, nom, new_val in effects_list:
-            if pname in _SCALAR_PARAM_REGISTRY:
+            if pname in _POI_PARAM_NAMES and poi_file_is_enable(rocket_param):
+                # file mode: new_val is the multiplier; write a per-case scaled POI file
+                _, fset, label = _POI_META[pname]
+                t_arr, v_arr = poi_base_by_name[pname]
+                pf = f'{cn}_poi_{label}.csv'
+                np.savetxt(prefix + pf, np.c_[t_arr, v_arr * new_val],
+                           delimiter=',', fmt='%0.9f', header=f'Time,{label}', comments='')
+                rp = fset(rp, pf)
+            elif pname in _SCALAR_PARAM_REGISTRY:
                 cfg_key, _, setter = _SCALAR_PARAM_REGISTRY[pname]
                 cfgs = {'rocket_param': rp, 'engine_param': ep, 'soe': soe_c, 'solver_config': sc}
                 setter(cfgs[cfg_key], new_val)
@@ -200,6 +230,13 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
 
         if moi_file_is_enable(rocket_param):
             rp = set_moi_file_name(rp, os.path.abspath(get_moi_file_name(rocket_param)))
+
+        # POI components not being varied keep their original file (re-pathed to absolute,
+        # since sensitivity cases run from the cases dir and nothing copies inputs there).
+        if poi_file_is_enable(rocket_param):
+            for _pname, _fget, _fset, _label in _POI_COMPONENTS:
+                if _pname not in varied_pnames:
+                    rp = _fset(rp, os.path.abspath(_fget(rocket_param)))
 
         # Fix wind path
         wind_path = sc['Wind Condition'].get('Wind File Path', '')

@@ -50,6 +50,10 @@ from runner_tool.json_api import get_thrust_point_offset_z, set_thrust_point_off
 from runner_tool.json_api import get_constant_poi_ixy, set_constant_poi_ixy
 from runner_tool.json_api import get_constant_poi_ixz, set_constant_poi_ixz
 from runner_tool.json_api import get_constant_poi_iyz, set_constant_poi_iyz
+from runner_tool.json_api import poi_file_is_enable
+from runner_tool.json_api import get_poi_file_ixy, set_poi_file_ixy
+from runner_tool.json_api import get_poi_file_ixz, set_poi_file_ixz
+from runner_tool.json_api import get_poi_file_iyz, set_poi_file_iyz
 
 from runner_tool.runner_multi import run_multi
 
@@ -101,7 +105,9 @@ def _sample_from_config(ep, mean, size):
 # Each entry: (config_key, getter, setter)
 #   config_key: 'rocket_param' | 'engine_param' | 'soe' | 'solver_config'
 # Error unit and magnitude come from the montecarlo config at runtime.
-# Note: file-based variants (Enable *File = true) are not supported here; use constant mode.
+# Note: file-based variants (Enable *File = true) are not supported via this registry; for
+# constant mode the registry samples directly, while POI also has a dedicated file-mode
+# block below (see _POI_COMPONENTS). Other params remain constant-mode only.
 _SCALAR_PARAM_REGISTRY = {
     'Launcher Azimuth':         ('solver_config', get_azimuth,                         set_azimuth                        ),
     'Launcher Elevation':       ('solver_config', get_elevation,                       set_elevation                      ),
@@ -130,6 +136,17 @@ _SCALAR_PARAM_REGISTRY = {
     'Secondary Parachute Drag':      ('soe', get_secondary_parachute_drag_factor, set_secondary_parachute_drag_factor),
     'Secondary Parachute Open Time': ('soe', get_secondary_parachute_open_time,   set_secondary_parachute_open_time  ),
 }
+
+# POI (Product of Inertia) components for file mode. Each component has its own input file
+# and its own error config. In file mode a per-component multiplier (Error Unit "%") is applied
+# to the file values; in constant mode POI is sampled via _SCALAR_PARAM_REGISTRY above.
+#   (config key, file-path getter, file-path setter, column label)
+_POI_COMPONENTS = (
+    ('POI Ixy', get_poi_file_ixy, set_poi_file_ixy, 'Ixy'),
+    ('POI Ixz', get_poi_file_ixz, set_poi_file_ixz, 'Ixz'),
+    ('POI Iyz', get_poi_file_iyz, set_poi_file_iyz, 'Iyz'),
+)
+_POI_PARAM_NAMES = frozenset(c[0] for c in _POI_COMPONENTS)
 
 
 class MontecarloCaseConfig:
@@ -262,6 +279,22 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
         moi_samples = _sample_from_config(ep_moi, 1.0, case_count)  # multiplier
         moi_samples[0] = 1.0
 
+    # ---- POI (Product of Inertia), file mode ------------------------
+    # file mode: per-component multiplier around 1.0 applied to each POI file.
+    # constant mode is handled by the scalar registry below (file mode is skipped there).
+    # poi_jobs maps config key -> (multiplier array, time array, base value array, file setter, label)
+    poi_file_mode = poi_file_is_enable(rocket_param)
+    poi_jobs = {}
+    if poi_file_mode:
+        for _name, _file_getter, _file_setter, _comp in _POI_COMPONENTS:
+            ep_poi = error_params.get(_name)
+            if ep_poi is None or not ep_poi.get('Enable', False):
+                continue
+            poi_load = np.loadtxt(_file_getter(rocket_param), delimiter=',', skiprows=1)
+            poi_mult = _sample_from_config(ep_poi, 1.0, case_count)  # multiplier
+            poi_mult[0] = 1.0
+            poi_jobs[_name] = (poi_mult, poi_load[:, 0], poi_load[:, 1], _file_setter, _comp)
+
     # ---- Generic scalar parameters ----------------------------------
     scalar_samples = {}
     _base_configs = {
@@ -271,6 +304,8 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
         'solver_config': solver_config,
     }
     for name, (cfg_key, getter, setter) in _SCALAR_PARAM_REGISTRY.items():
+        if name in _POI_PARAM_NAMES and poi_file_mode:
+            continue  # POI in file mode is handled by the dedicated poi_jobs block
         ep = error_params.get(name)
         if ep is None or not ep.get('Enable', False):
             continue
@@ -344,6 +379,17 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
                                                         get_constant_moi_pitch(rocket_param) * mult)
             rocket_param_case = set_constant_moi_roll(rocket_param_case,
                                                        get_constant_moi_roll(rocket_param) * mult)
+
+        # POI (Product of Inertia), file mode: write a per-case scaled file for each
+        # component whose error is enabled. Components without an enabled error keep the
+        # file already copied into the cases directory by copy_config_files().
+        for _poi_mult, _poi_t, _poi_v, _poi_setter, _poi_comp in poi_jobs.values():
+            poi_file_name = str(case_num) + '_poi_' + _poi_comp + '.csv'
+            np.savetxt(work_dir+'/'+calc_dir+'/'+poi_file_name,
+                       np.c_[_poi_t, _poi_v * _poi_mult[case_num]],
+                       delimiter=',', fmt='%0.9f',
+                       header='Time,' + _poi_comp, comments='')
+            _poi_setter(rocket_param_case, poi_file_name)
 
         # Thrust
         if thrust_file_is_enable(engine_param):
