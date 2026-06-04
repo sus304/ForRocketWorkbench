@@ -170,7 +170,15 @@ def post_summary_for_montecarlo(df_all):
     min_sg = float(np.min(sg_log[:index_apogee]))
 
     min_resonance_ratio = float(np.min(df_all["ResonanceRatio [-]"].to_numpy()[ascent_hq]))
-    max_trim_aoa = float(np.max(df_all["TrimAoA [deg]"].to_numpy()[ascent_hq]))
+
+    # TrimAoA is a forced-response amplitude (M_asym / (k_alpha * amp_resp)) that diverges
+    # near roll-pitch resonance, where the effective restoring stiffness k_alpha*amp_resp -> 0.
+    # The q floor alone can't fix this (resonance is crossed at high q too), so clamp each
+    # sample to the linear-aero validity ceiling before taking the max. LateralAeroLoad below
+    # is built from the actual simulated AoA and stays the bounded structural-load metric.
+    TRIM_AOA_CAP_DEG = 15.0
+    max_trim_aoa = float(np.minimum(df_all["TrimAoA [deg]"].to_numpy()[ascent_hq], TRIM_AOA_CAP_DEG).max())
+
     max_lateral_aero_load = float(np.max(df_all["LateralAeroLoad [N]"].to_numpy()[ascent_hq]))
 
     return (dynamic_pressure_maxq, mach_maxmach, time_apogee, altitude_apogee, vel_apogee,
