@@ -140,11 +140,19 @@ def post_summary_for_montecarlo(df_all):
     index_launch_clear = int(np.argmax(np.abs(fz_gravity_log) >= 0.1))
     aoa_launch_clear = float(df_all["TotalAoA [deg]"].iloc[index_launch_clear])
 
-    # Peak total AoA during ascent (now directly available from ForRocket)
-    total_aoa_log = df_all["TotalAoA [deg]"]
-    peak_total_aoa = float(np.max(total_aoa_log[:index_apogee]))
+    # Ascent + high-q mask: exclude the q≈0 region just after balloon release
+    # and near apogee, where AoA / resonance diagnostics are degenerate.
+    Q_FLOOR_PA = 500.0
+    q_pa = df_all["DynamicPressure [kPa]"].to_numpy() * 1000.0
+    idx = np.arange(len(df_all))
+    ascent_hq = (idx < index_apogee) & (q_pa > Q_FLOOR_PA)
+    if not ascent_hq.any():
+        ascent_hq = (idx < index_apogee)          # fallback
 
-    # Spin rate (body x-axis roll rate)
+    # Peak total AoA during ascent (now directly available from ForRocket)
+    peak_total_aoa = float(np.max(df_all["TotalAoA [deg]"].to_numpy()[ascent_hq]))
+
+    # Spin rate (body x-axis roll rate) — no q floor: we want the true peak spin for IMU range
     spin_rate_log = df_all["AngleVelx [deg/s]"]
     peak_spin_rate = float(np.max(np.abs(spin_rate_log[:index_apogee])))
 
@@ -161,11 +169,9 @@ def post_summary_for_montecarlo(df_all):
     sg_log = df_all["GyroStabilityFactor Sg [-]"]
     min_sg = float(np.min(sg_log[:index_apogee]))
 
-    resonance_ratio_log = df_all["ResonanceRatio [-]"]
-    min_resonance_ratio = float(np.min(resonance_ratio_log[:index_apogee]))
-
-    max_trim_aoa = float(np.max(df_all["TrimAoA [deg]"][:index_apogee]))
-    max_lateral_aero_load = float(np.max(df_all["LateralAeroLoad [N]"][:index_apogee]))
+    min_resonance_ratio = float(np.min(df_all["ResonanceRatio [-]"].to_numpy()[ascent_hq]))
+    max_trim_aoa = float(np.max(df_all["TrimAoA [deg]"].to_numpy()[ascent_hq]))
+    max_lateral_aero_load = float(np.max(df_all["LateralAeroLoad [N]"].to_numpy()[ascent_hq]))
 
     return (dynamic_pressure_maxq, mach_maxmach, time_apogee, altitude_apogee, vel_apogee,
             pos_landing, downrange_landing,
