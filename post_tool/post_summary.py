@@ -1,6 +1,9 @@
 import numpy as np
 import pandas as pd
 
+# Target altitude for apogee "reach probability" statistics (Karman line, 100 km).
+REACH_ALTITUDE_THRESHOLD_M = 100000.0
+
 def post_summary(df_all, file_prefix):
     vel_b_x_log = df_all["Vx-body [m/s]"]
     vel_b_y_log = df_all["Vy-body [m/s]"]
@@ -213,10 +216,20 @@ def post_3sigma_summary(case_number_list, maxQ_Q_list, mach_list, time_apogee_li
         txt.writelines([f'{label} 3sigma Low Case,', str(cases_sorted[low_index]), '\n'])
         txt.writelines([f'{label} 3sigma Low,', str(round(float(vals_sorted[low_index]), 3)), f'[{unit}]\n'])
 
+    def _write_reach_probability(label, values, threshold):
+        arr = np.asarray(values, dtype=float)
+        arr = arr[~np.isnan(arr)]
+        if not len(arr):
+            return
+        prob = float(np.count_nonzero(arr >= threshold)) / len(arr) * 100.0
+        txt.writelines([f'{label} Reach Probability >= {threshold * 1e-3:g}km,',
+                        str(round(prob, 3)), '[%]\n'])
+
     _write_3sigma('DynamicPressure', maxQ_Q_list, 'kPa')
     _write_3sigma('MachNumber', mach_list, '-')
     _write_3sigma('Apogee X+', time_apogee_list, 's')
     _write_3sigma('Apogee Altitude', altitude_list, 'm')
+    _write_reach_probability('Apogee Altitude', altitude_list, REACH_ALTITUDE_THRESHOLD_M)
     _write_3sigma('Apogee Air Velocity', vel_apogee_list, 'm/s')
     _write_3sigma('Impact Downrange', downrange_impact_list, 'm')
 

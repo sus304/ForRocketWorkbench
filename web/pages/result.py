@@ -676,6 +676,10 @@ def _find_mc_result_tables(result_dir: str) -> list[tuple[str, str]]:
             if os.path.isfile(os.path.join(result_dir, fn))]
 
 
+# Target apogee altitude for the reach-probability readout (Karman line, 100 km).
+# altitude_apogee is scaled to km in the MC card, so this threshold is in km.
+REACH_ALTITUDE_THRESHOLD_KM = 100.0
+
 # (col, display, raw_unit, display_unit, scale, color)
 _MC_PARAMS = [
     ('altitude_apogee',         'Apogee Alt.',     'm',    'km',    1e-3, '#42a5f5'),
@@ -859,6 +863,11 @@ def _build_mc_card(df_mc: pd.DataFrame, label: str):
                         ui.label(f'σ = {_fmtv(std)}').classes('text-caption text-grey')
                         ui.label(f'+3σ:  {_fmtv(mean + 3 * std)}').classes('text-caption text-grey')
                         ui.label(f'−3σ:  {_fmtv(mean - 3 * std)}').classes('text-caption text-grey')
+                        if col == 'altitude_apogee':
+                            # arr is already in km (scale=1e-3); fraction of cases reaching the target.
+                            prob = float(np.count_nonzero(arr >= REACH_ALTITUDE_THRESHOLD_KM)) / len(arr) * 100.0
+                            ui.label(f'P(≥{REACH_ALTITUDE_THRESHOLD_KM:g}km): {prob:.1f}%').classes(
+                                'text-caption text-weight-bold').style(f'color:{clr}')
 
         # Histograms
         if n >= 10 and avail:
