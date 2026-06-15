@@ -6,11 +6,12 @@ from post_tool.post_df import csv2df
 from post_tool.post_summary import post_summary
 from post_tool.post_graph import plot_graph
 from post_tool.post_kml import dump_trajectory_kml
+from post_tool.post_iip import post_iip, should_run_iip, IIP_MIN_APOGEE_M
 
 from path_define import chdir
 
 
-def post_trajectory(trajectory_work_dir):
+def post_trajectory(trajectory_work_dir, iip=None, iip_min_apogee=IIP_MIN_APOGEE_M):
     with chdir(trajectory_work_dir):
         log_file_list = glob.glob('*_flight_log.csv')
 
@@ -24,3 +25,5 @@ def post_trajectory(trajectory_work_dir):
             plot_graph(df_all, df_burning, df_coasting, result_dir + '/')
             dump_trajectory_kml(df_all, result_dir + '/')
             post_summary(df_all, result_dir + '/')
+            if should_run_iip(df_all, iip, iip_min_apogee):
+                post_iip(df_all, result_dir + '/')

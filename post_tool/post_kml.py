@@ -21,6 +21,24 @@ def dump_trajectory_kml(df_all, file_prefix):
     kml.save(file_prefix + '_trajectory.kml')
 
 
+def dump_iip_kml(lat_array, lon_array, file_prefix):
+    kml = simplekml.Kml(open=1)
+    lat_array = np.asarray(lat_array)
+    lon_array = np.asarray(lon_array)
+    if len(lat_array) == 0:
+        kml.save(file_prefix + '_iip.kml')
+        return
+
+    idx = np.arange(0, len(lat_array), 10)  # 間引き
+    iip_lon_lat = np.column_stack([lon_array[idx], lat_array[idx]]).tolist()
+
+    line = kml.newlinestring()
+    line.style.linestyle.width = 4
+    line.style.linestyle.color = simplekml.Color.blue
+    line.coords = iip_lon_lat
+    kml.save(file_prefix + '_iip.kml')
+
+
 def dump_area_kml(impact_points_LatLon, file_prefix):
     kml = simplekml.Kml()
     for vel_iter in impact_points_LatLon:

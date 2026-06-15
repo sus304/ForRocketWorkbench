@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from post_tool.post_summary import post_summary_for_montecarlo, post_3sigma_summary
 from post_tool.post_ellipse import get_ellipse_points
 from post_tool.post_kml import dump_montecarlo_points_kml, dump_montecarlo_envelop_kml
+from post_tool.post_iip import (write_iip_log, has_iip_input, should_run_iip,
+                                 IIP_INPUT_COLUMNS, IIP_MIN_APOGEE_M)
 
 from path_define import chdir
 
@@ -69,6 +71,34 @@ def _process_one_case(log_file, kml_suffix=''):
     df = pd.read_csv(log_file, usecols=_MC_COLS)
     result = post_summary_for_montecarlo(df)
     return (case_number,) + result
+
+
+def _write_case_iip_logs(log_file_list, iip=None, iip_min_apogee=IIP_MIN_APOGEE_M):
+    """ログ非削除モード専用: 各ケースの flight_log から IIP 時間履歴 CSV
+    (`<case>_iip_log.csv`) を flight_log の隣に書き出す。
+
+    iip=None は頂点高度ゲート（小型ロケットはケース毎に自動スキップ）。
+    ECI 列を持たない（minimum_dump 等の）ログはスキップする。
+    戻り値: (written, skipped_no_eci, skipped_small)。"""
+    def _one(log_file):
+        df = pd.read_csv(log_file, usecols=lambda c: c in IIP_INPUT_COLUMNS)
+        if not has_iip_input(df.columns):
+            return 'no_eci'
+        if not should_run_iip(df, iip, iip_min_apogee):
+            return 'small'
+        write_iip_log(df, log_file.rsplit('_flight_log.csv', 1)[0])
+        return 'written'
+
+    with ThreadPoolExecutor() as executor:
+        results = list(tqdm(executor.map(_one, log_file_list), total=len(log_file_list)))
+    written = sum(1 for r in results if r == 'written')
+    skipped_no_eci = sum(1 for r in results if r == 'no_eci')
+    skipped_small = sum(1 for r in results if r == 'small')
+    if skipped_no_eci:
+        print(f'IIP: {skipped_no_eci}/{len(results)} 件は ECI 列が無くスキップ')
+    if skipped_small:
+        print(f'IIP: {skipped_small}/{len(results)} 件は頂点高度がしきい値未満でスキップ')
+    return written, skipped_no_eci, skipped_small
 
 
 def _collect_case_results(log_file_list, kml_suffix=''):
@@ -196,7 +226,8 @@ def _post_montecarlo_from_metrics(montecarlo_work_dir):
             _save_from_metrics(_lists_from_metrics(nominal), '')
 
 
-def post_montecarlo(montecarlo_work_dir, montecarlo_calc_dir='cases/', max_thread_run=False):
+def post_montecarlo(montecarlo_work_dir, montecarlo_calc_dir='cases/', max_thread_run=False,
+                    iip=None, iip_min_apogee=IIP_MIN_APOGEE_M):
     # Statistics-only mode: per-case flight logs were extracted and deleted during the run,
     # leaving only CASE_METRICS_FILE. Rebuild the statistics from it.
     if os.path.exists(os.path.join(montecarlo_work_dir, CASE_METRICS_FILE)):
@@ -229,6 +260,9 @@ def post_montecarlo(montecarlo_work_dir, montecarlo_calc_dir='cases/', max_threa
                  b_peak_total_aoa, b_aoa_launch_clear, b_peak_spin_rate, b_spin_rate_burnout,
                  b_min_sg, b_min_resonance_ratio, b_max_trim_aoa, b_max_lateral_aero_load) = _collect_case_results(
                     stage1_ballistic_log_file_list, kml_suffix='_ballistic')
+
+            # ログ非削除モードでのみ: 各ケースの IIP 時間履歴 CSV を cases/ 内に書き出す
+            _write_case_iip_logs(log_file_list, iip=iip, iip_min_apogee=iip_min_apogee)
 
         # results are written in montecarlo_work_dir (one level above cases/)
         if exist_decent:
