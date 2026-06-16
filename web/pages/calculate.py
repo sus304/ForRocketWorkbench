@@ -587,15 +587,45 @@ _MC_ERROR_PARAMS_DEF = [
     ('POI Iyz',                       '%',   False),
 ]
 
-_SENS_PARAM_NAMES = [
-    'Thrust', 'CA', 'Launcher Azimuth', 'Launcher Elevation',
-    'Propellant Mass', 'Mass Inert', 'CNa', 'XCP', 'Cld', 'Clp',
-    'Cmq', 'Cnr', 'Fin Cant Angle',
-    'Engine Miss-Alignment Y', 'Engine Miss-Alignment Z',
-    'Primary Parachute Drag', 'Primary Parachute Open Time',
-    'Secondary Parachute Drag', 'Secondary Parachute Open Time',
+# (parameter name, default Variation Unit). Mirrors the runner's supported
+# scalar sensitivity parameters (runner_montecarlo._SCALAR_PARAM_REGISTRY) plus
+# Thrust / CA. Keep in sync with runner_tool/runner_sensitivity.py.
+_SENS_PARAM_DEFS = [
+    ('Thrust',                        '%'),
+    ('CA',                            '%'),
+    ('Launcher Azimuth',              'deg'),
+    ('Launcher Elevation',            'deg'),
+    ('Propellant Mass',               '%'),
+    ('Mass Inert',                    '%'),
+    ('CNa',                           '%'),
+    ('XCP',                           '%'),
+    ('Cld',                           '%'),
+    ('Clp',                           '%'),
+    ('Cmq',                           '%'),
+    ('Cnr',                           '%'),
+    ('Fin Cant Angle',                'deg'),
+    ('Engine Miss-Alignment Y',       'deg'),
+    ('Engine Miss-Alignment Z',       'deg'),
+    ('Gas Jet Moment',                '%'),
+    ('Gas Jet Duration',              '%'),
+    ('CG Offset Y',                   'mm'),
+    ('CG Offset Z',                   'mm'),
+    ('Thrust Point Offset Y',         'mm'),
+    ('Thrust Point Offset Z',         'mm'),
+    ('POI Ixy',                       '%'),
+    ('POI Ixz',                       '%'),
+    ('POI Iyz',                       '%'),
+    ('Primary Parachute Drag',        '%'),
+    ('Primary Parachute Open Time',   's'),
+    ('Secondary Parachute Drag',      '%'),
+    ('Secondary Parachute Open Time', 's'),
 ]
+_SENS_PARAM_NAMES = [n for n, _ in _SENS_PARAM_DEFS]
+_SENS_PARAM_UNIT  = dict(_SENS_PARAM_DEFS)
 _SENS_UNITS = ['%', 'deg', 's', 'm', 'kg', 'N', 'mm', '-']
+_SENS_METHODS = {'two_point': 'Two Point', 'linear_fit': 'Linear Fit (all points)'}
+# POI components are %-only when the rocket runs in Product-of-Inertia file mode.
+_SENS_POI_PARAMS = {'POI Ixy', 'POI Ixz', 'POI Iyz'}
 
 
 def _parse_num_list(text: str) -> list:
@@ -607,6 +637,18 @@ def _parse_num_list(text: str) -> list:
         except ValueError:
             pass
     return result
+
+
+def _opts_with(value, base: list) -> list:
+    """Return base options with `value` prepended if it isn't already present.
+
+    ui.select raises ValueError when its initial value is outside `options`, so
+    any custom/composite value loaded from a config must be merged in first.
+    """
+    opts = list(base)
+    if value and value not in opts:
+        opts = [value] + opts
+    return opts
 
 
 def _build_area_form(data: dict, container):
@@ -729,92 +771,312 @@ def _build_montecarlo_form(data: dict, container):
     return collect
 
 
-def _build_sensitivity_form(data: dict, container):
-    sc          = data.get('Sensitivity Calculation', {})
-    params_data = list(data.get('Sensitivity Parameters', []))
-    param_rows: list[dict] = []
-    param_list_area = None
+def _build_sensitivity_form(data: dict, container, proj=None):
+    sc = data.get('Sensitivity Calculation', {})
 
+    def _copy_param(p):
+        q = dict(p)
+        if 'Effects' in q:
+            q['Effects'] = [dict(e) for e in (q.get('Effects') or [])]
+        return q
+
+    # Working copy — edits are buffered here and only written to disk on Save.
+    params_data = [_copy_param(p) for p in data.get('Sensitivity Parameters', [])]
+
+    # File-mode flags: Thrust/CA/POI accept only "%" when their file mode is on
+    # (runner_sensitivity._get_nominal raises otherwise). Read the sibling configs
+    # directly — these are plain JSON keys, no heavy import needed.
+    rocket = (load_json(proj, 'param_rocket.json') or {}) if proj else {}
+    engine = (load_json(proj, 'param_engine.json') or {}) if proj else {}
+    thrust_fm = bool(engine.get('Enable Thrust File'))
+    ca_fm     = bool(rocket.get('Enable CA File'))
+    poi_fm    = bool(rocket.get('Enable Product of Inertia File'))
+
+    param_rows = []
+    param_list_area = None
+    method_sel = total_lbl = warn_lbl = None
+    state = {'building': False}
+
+    def _to_float(v, default=1.0):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+
+    def _filemode_bad(pname_set, unit):
+        if unit == '%':
+            return []
+        bad = []
+        for pn in pname_set:
+            if (pn == 'Thrust' and thrust_fm) or (pn == 'CA' and ca_fm) \
+                    or (pn in _SENS_POI_PARAMS and poi_fm):
+                bad.append(pn)
+        return bad
+
+    # ── widgets → working copy ──────────────────────────────────────────────
+    def _sync():
+        for row, p in zip(param_rows, params_data):
+            p['Name'] = row['name'].value
+            p['Variation Unit'] = row['unit'].value
+            p['Variations'] = _parse_num_list(row['variations'].value)
+            ref = [v for v in (row['ref_lo'].value, row['ref_hi'].value) if v is not None]
+            if len(ref) >= 2:
+                p['Reference Variations'] = ref
+            if row['mode'] == 'coupled':
+                p['Effects'] = [
+                    {'Parameter': er['param'].value, 'Scale': _to_float(er['scale'].value)}
+                    for er in row['effects']
+                ]
+            else:
+                p.pop('Effects', None)
+
+    def _update_total():
+        n = sum(len(p.get('Variations') or []) for p in params_data)
+        total_lbl.set_text(f'Estimated cases: 1 (nominal) + {n} = {n + 1}')
+
+    def _validate():
+        msgs = []
+        names = [p.get('Name') or '(unnamed)' for p in params_data]
+        for p in params_data:
+            nm = p.get('Name') or '(unnamed)'
+            unit = p.get('Variation Unit', '%')
+            vars_ = p.get('Variations') or []
+            if 'Effects' in p:
+                effs = p.get('Effects') or []
+                if not effs:
+                    msgs.append(f'"{nm}": coupled parameter has no Effects')
+                pset = {e.get('Parameter') for e in effs if e.get('Parameter')}
+            else:
+                pset = {nm}
+                if nm and nm not in _SENS_PARAM_NAMES:
+                    msgs.append(f'"{nm}": unknown parameter (runner may reject)')
+            if len(vars_) < 2:
+                msgs.append(f'"{nm}": needs at least 2 Variations')
+            for b in _filemode_bad(pset, unit):
+                msgs.append(f'"{nm}": {b} is in file mode → Unit must be "%" (got "{unit}")')
+        for d in sorted({n for n in names if names.count(n) > 1}):
+            msgs.append(f'duplicate name "{d}"')
+        if msgs:
+            warn_lbl.set_text('⚠ ' + '   •   '.join(msgs))
+            warn_lbl.set_visibility(True)
+        else:
+            warn_lbl.set_visibility(False)
+
+    def _refresh():
+        if state['building']:
+            return
+        _sync()
+        _update_total()
+        _validate()
+
+    def _init_row_ui(row):
+        """Refresh chips, case count and Reference dropdown options from Variations."""
+        vals = _parse_num_list(row['variations'].value)
+        row['chips_area'].clear()
+        with row['chips_area']:
+            if vals:
+                for v in vals:
+                    ui.chip(str(v)).props('dense outline square color=primary')
+            else:
+                ui.label('(no values)').classes('text-caption text-grey')
+        row['count_lbl'].set_text(f'{len(vals)} case(s)')
+        for key, default in (('ref_lo', vals[0] if vals else None),
+                             ('ref_hi', vals[-1] if vals else None)):
+            sel = row[key]
+            sel.options = vals
+            if sel.value not in vals:
+                sel.value = default
+            sel.update()
+
+    # ── event handlers ──────────────────────────────────────────────────────
+    def _on_vars(row):
+        if state['building']:
+            return
+        state['building'] = True
+        _init_row_ui(row)
+        state['building'] = False
+        _refresh()
+
+    def _on_name(row):
+        if state['building']:
+            return
+        nm = row['name'].value
+        if nm in _SENS_PARAM_UNIT:
+            row['unit'].value = _SENS_PARAM_UNIT[nm]
+        _refresh()
+
+    def _add_param(coupled):
+        _sync()
+        if coupled:
+            params_data.append({
+                'Name': 'New Coupled Parameter', 'Variation Unit': '%',
+                'Variations': [-10, -5, 5, 10], 'Reference Variations': [-10, 10],
+                'Effects': [{'Parameter': _SENS_PARAM_NAMES[0], 'Scale': 1.0}],
+            })
+        else:
+            first = _SENS_PARAM_NAMES[0]
+            params_data.append({
+                'Name': first, 'Variation Unit': _SENS_PARAM_UNIT[first],
+                'Variations': [-10, -5, 5, 10], 'Reference Variations': [-10, 10],
+            })
+        _rebuild()
+
+    def _remove_param(idx):
+        _sync()
+        params_data.pop(idx)
+        _rebuild()
+
+    def _toggle_mode(idx, mode):
+        _sync()
+        p = params_data[idx]
+        if mode == 'coupled':
+            p.setdefault('Effects', [{'Parameter': _SENS_PARAM_NAMES[0], 'Scale': 1.0}])
+        else:
+            p.pop('Effects', None)
+        _rebuild()
+
+    def _add_effect(idx):
+        _sync()
+        params_data[idx].setdefault('Effects', []).append(
+            {'Parameter': _SENS_PARAM_NAMES[0], 'Scale': 1.0})
+        _rebuild()
+
+    def _remove_effect(idx, eidx):
+        _sync()
+        (params_data[idx].get('Effects') or []).pop(eidx)
+        _rebuild()
+
+    # ── (re)build the parameter cards ─────────────────────────────────────────
     def _rebuild():
+        state['building'] = True
         param_list_area.clear()
         param_rows.clear()
         with param_list_area:
             for i, p in enumerate(params_data):
-                els = {}
+                coupled = 'Effects' in p
+                row = {'mode': 'coupled' if coupled else 'single'}
                 with ui.card().classes('w-full q-pa-sm'):
-                    with ui.row().classes('items-center no-wrap q-gutter-sm'):
-                        els['name'] = ui.select(
-                            options=_SENS_PARAM_NAMES,
-                            value=p.get('Name', _SENS_PARAM_NAMES[0]),
-                            label='Parameter',
-                        ).style('min-width:220px')
-                        els['unit'] = ui.select(
-                            options=_SENS_UNITS,
-                            value=p.get('Variation Unit', '%'),
-                            label='Unit',
-                        ).style('max-width:80px')
+                    with ui.row().classes('items-center no-wrap w-full q-gutter-sm'):
+                        ui.label(f'#{i + 1}').classes('text-caption text-grey')
+                        ui.toggle({'single': 'Single', 'coupled': 'Coupled'}, value=row['mode'],
+                                  on_change=lambda e, idx=i: _toggle_mode(idx, e.value)) \
+                            .props('dense no-caps')
                         ui.space()
+                        ui.button(icon='delete', on_click=lambda idx=i: _remove_param(idx)) \
+                            .props('flat round dense color=negative')
 
-                        def _remove(idx=i):
-                            params_data.pop(idx)
-                            _rebuild()
+                    with ui.row().classes('items-center no-wrap w-full q-gutter-sm'):
+                        if coupled:
+                            row['name'] = ui.input('Label', value=p.get('Name', '')) \
+                                .style('min-width:240px').props('dense')
+                            row['name'].on_value_change(lambda: _refresh())
+                        else:
+                            cur = p.get('Name', _SENS_PARAM_NAMES[0])
+                            row['name'] = ui.select(
+                                options=_opts_with(cur, _SENS_PARAM_NAMES), value=cur,
+                                label='Parameter', with_input=True, new_value_mode='add-unique',
+                            ).style('min-width:240px')
+                            row['name'].on_value_change(lambda r=row: _on_name(r))
+                        cu = p.get('Variation Unit', '%')
+                        row['unit'] = ui.select(options=_opts_with(cu, _SENS_UNITS), value=cu,
+                                                label='Unit').style('width:90px')
+                        row['unit'].on_value_change(lambda: _refresh())
 
-                        ui.button(icon='delete', on_click=_remove).props('flat round dense color=negative')
+                    row['effects'] = []
+                    if coupled:
+                        with ui.card().classes('w-full q-pa-xs bg-grey-1'):
+                            ui.label('Effects — these parameters move together each variation '
+                                     '(new = base ± variation × Scale)').classes('text-caption text-grey')
+                            for j, eff in enumerate(p.get('Effects') or []):
+                                with ui.row().classes('items-center no-wrap q-gutter-sm'):
+                                    ecur = eff.get('Parameter', _SENS_PARAM_NAMES[0])
+                                    esel = ui.select(options=_opts_with(ecur, _SENS_PARAM_NAMES),
+                                                     value=ecur, label='Parameter',
+                                                     with_input=True).style('min-width:220px')
+                                    escale = ui.number('Scale', value=_to_float(eff.get('Scale', 1.0))) \
+                                        .style('width:110px').props('dense')
+                                    esel.on_value_change(lambda: _refresh())
+                                    escale.on_value_change(lambda: _refresh())
+                                    ui.button(icon='delete',
+                                              on_click=lambda idx=i, ej=j: _remove_effect(idx, ej)) \
+                                        .props('flat round dense color=negative')
+                                    row['effects'].append({'param': esel, 'scale': escale})
+                            ui.button('+ add effect', on_click=lambda idx=i: _add_effect(idx)) \
+                                .props('flat dense color=primary icon=add')
 
-                    vars_str = ', '.join(str(v) for v in p.get('Variations', []))
-                    ref_str  = ', '.join(str(v) for v in p.get('Reference Variations', []))
-                    els['variations'] = (
-                        ui.input('Variations (comma-separated)', value=vars_str)
+                    row['variations'] = ui.input('Variations (comma-separated)',
+                                                 value=', '.join(str(v) for v in p.get('Variations', []))) \
                         .classes('w-full').props('dense')
-                    )
-                    els['variations'].tooltip('e.g. -10, -5, 5, 10  — all values to simulate')
-                    els['ref_vars'] = (
-                        ui.input('Reference Variations (2 values for sensitivity slope)', value=ref_str)
-                        .classes('w-full').props('dense')
-                    )
-                    els['ref_vars'].tooltip('e.g. -10, 10  — the pair used to compute the sensitivity')
-                param_rows.append(els)
+                    row['variations'].tooltip('e.g. -10, -5, 5, 10 — every value becomes one case')
+                    row['variations'].on_value_change(lambda r=row: _on_vars(r))
+                    with ui.row().classes('items-center no-wrap w-full q-gutter-xs'):
+                        row['chips_area'] = ui.row().classes('items-center q-gutter-xs')
+                        ui.space()
+                        row['count_lbl'] = ui.label('').classes('text-caption text-grey')
 
-    def _add_param():
-        params_data.append({
-            'Name': _SENS_PARAM_NAMES[0],
-            'Variation Unit': '%',
-            'Variations': [-10, -5, 5, 10],
-            'Reference Variations': [-10, 10],
-        })
-        _rebuild()
+                    with ui.row().classes('items-center no-wrap q-gutter-sm') as ref_row:
+                        ui.label('Reference (two-point):').classes('text-caption')
+                        row['ref_lo'] = ui.select(options=[], label='Low').style('width:110px')
+                        row['ref_hi'] = ui.select(options=[], label='High').style('width:110px')
+                    ref_row.bind_visibility_from(method_sel, 'value',
+                                                 backward=lambda v: v == 'two_point')
+                    row['ref_lo'].on_value_change(lambda: _refresh())
+                    row['ref_hi'].on_value_change(lambda: _refresh())
+
+                param_rows.append(row)
+                _init_row_ui(row)
+                rv = p.get('Reference Variations') or []
+                if len(rv) >= 2:
+                    if rv[0] in (row['ref_lo'].options or []):
+                        row['ref_lo'].value = rv[0]
+                    if rv[1] in (row['ref_hi'].options or []):
+                        row['ref_hi'].value = rv[1]
+                    row['ref_lo'].update()
+                    row['ref_hi'].update()
+        state['building'] = False
+        _update_total()
+        _validate()
 
     with container:
         with ui.card().classes('w-full'):
             ui.label('Sensitivity Calculation Settings').classes('text-subtitle2')
-            method_sel = ui.select(
-                options={'two_point': 'Two Point', 'linear_fit': 'Linear Fit (all points)'},
-                value=sc.get('Method', 'two_point'),
-                label='Method',
-            ).style('min-width:220px')
-            ui.label('two_point: ΔAlt / ΔParam between Reference Variation pair').classes('text-caption text-grey')
-            ui.label('linear_fit: least-squares regression through all variation points').classes('text-caption text-grey')
+            method_val = sc.get('Method', 'two_point')
+            if method_val not in _SENS_METHODS:
+                method_val = 'two_point'
+            method_sel = ui.select(options=_SENS_METHODS, value=method_val, label='Method') \
+                .style('min-width:240px')
+            ui.label('two_point: ΔApogee / ΔParam between the chosen Low/High reference pair') \
+                .classes('text-caption text-grey')
+            ui.label('linear_fit: least-squares slope through all variation points') \
+                .classes('text-caption text-grey')
+            total_lbl = ui.label('').classes('text-caption text-grey q-mt-xs')
 
         with ui.card().classes('w-full'):
-            ui.label('Sensitivity Parameters').classes('text-subtitle2')
+            with ui.row().classes('items-center w-full q-gutter-sm'):
+                ui.label('Sensitivity Parameters').classes('text-subtitle2')
+                ui.space()
+                ui.button('+ Single', on_click=lambda: _add_param(False)) \
+                    .props('flat dense color=primary icon=add') \
+                    .tooltip('One-at-a-time: vary a single parameter')
+                ui.button('+ Coupled', on_click=lambda: _add_param(True)) \
+                    .props('flat dense color=secondary icon=add') \
+                    .tooltip('Vary several parameters together (Effects)')
             param_list_area = ui.column().classes('w-full q-gutter-sm')
+            warn_lbl = ui.label('').classes('text-caption text-orange q-mt-xs')
             _rebuild()
-            ui.button('+ Add Parameter', on_click=_add_param).props('flat color=primary icon=add').classes('q-mt-xs')
 
     def collect() -> dict:
+        _sync()
         result = []
-        for els in param_rows:
-            name = els['name'].value
-            unit = els['unit'].value
-            variations = _parse_num_list(els['variations'].value)
-            ref_vars   = _parse_num_list(els['ref_vars'].value)
-            if name and variations:
-                result.append({
-                    'Name': name,
-                    'Variation Unit': unit,
-                    'Variations': variations,
-                    'Reference Variations': ref_vars if ref_vars else variations[:2],
-                })
+        for p in params_data:
+            name = p.get('Name')
+            variations = p.get('Variations') or []
+            if not (name and variations):
+                continue
+            entry = _copy_param(p)
+            if len(entry.get('Reference Variations') or []) < 2:
+                entry['Reference Variations'] = variations[:2]
+            result.append(entry)
         return {
             'Sensitivity Calculation': {'Method': method_sel.value},
             'Sensitivity Parameters':  result,
@@ -927,7 +1189,11 @@ def calculate_page(request: Request):
                         with ui.tab_panels(tabs, value=form_tab).classes('w-full'):
                             with ui.tab_panel(form_tab):
                                 form_con   = ui.column().classes('w-full q-gutter-sm')
-                                collect_fn = builder(data or {}, form_con)
+                                if builder is _build_sensitivity_form:
+                                    # needs the project to read sibling configs (file-mode checks)
+                                    collect_fn = builder(data or {}, form_con, proj)
+                                else:
+                                    collect_fn = builder(data or {}, form_con)
                                 _save_btn(proj, fname, collect_fn)
                             with ui.tab_panel(json_tab):
                                 _build_json_editor(proj, fname, data)
