@@ -1,0 +1,28 @@
+# Coverage config. Scope is limited to the binary-independent core packages that
+# CI can actually exercise: gui_tool (pyqt5) and binary-dependent end-to-end paths
+# are intentionally excluded so the reported number reflects testable code, not
+# code that is unreachable in CI.
+[run]
+# Required by py-cov-action so file paths in the coverage data are repo-relative.
+relative_files = true
+branch = true
+source =
+    runner_tool
+    post_tool
+    wind_tool
+    lib
+omit =
+    # Plotting-only module: produces matplotlib figures, has no numeric-correctness
+    # surface to unit-test. Including its ~480 lines just deflates the headline number
+    # without reflecting test quality.
+    post_tool/post_graph.py
+
+[report]
+show_missing = true
+skip_covered = false
+exclude_also =
+    if __name__ == .__main__.:
+    raise NotImplementedError
+    if TYPE_CHECKING:
+    @(abc\.)?abstractmethod
+    def __repr__
