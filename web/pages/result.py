@@ -471,6 +471,13 @@ def _sensitivity_linearity_opts(sens_row: 'pd.Series', cases_df: 'pd.DataFrame')
     y_nom       = float(sens_row['altitude_nominal [m]'])
     slope       = float(sens_row['sensitivity [m/unit]'])
     unit        = str(sens_row.get('variation_unit', ''))
+
+    # The x axis is param_value (physical value), so the line needs a per-physical-unit
+    # slope. For '%' input, [m/unit] is reported per-percent (== [m/%]); convert it back
+    # to per-physical-unit here: 1% == nominal/100 physical units. Coupled params carry
+    # nominal_value=0 and plot param_value already in % units, so they need no conversion.
+    if unit == '%' and nominal_val != 0:
+        slope = slope * 100.0 / nominal_val
     var_lo_ref  = float(sens_row['variation_low'])
     var_hi_ref  = float(sens_row['variation_high'])
 
