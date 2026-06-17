@@ -158,6 +158,10 @@ projects/example/work_sensitivity*/
 docs/*.md
 docs/spec_web_gui.html
 !docs/manual.html
-tests/
 ref/
 cmd_memo.txt
+
+# The tests/ tree is version-controlled so CI and other developers can run it; only its
+# transient run output is ignored.
+tests/**/__pycache__/
+tests/.pytest_cache/

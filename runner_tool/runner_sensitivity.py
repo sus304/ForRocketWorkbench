@@ -9,13 +9,12 @@ from concurrent import futures
 from runner_tool.json_api import (
     get_stage_config,
     get_rocket_param, get_engine_param, get_soe,
+    copy_config_files, copy_wind_file,
     CA_file_is_enable, get_CA_file_name, set_CA_file_name,
     get_constant_CA, set_constant_CA,
-    get_burnoutCA_file_name, set_burnoutCA_file_name, set_constant_burnoutCA,
+    set_burnoutCA_file_name, set_constant_burnoutCA,
     thrust_file_is_enable, get_thrust_file_name, set_thrust_file_name,
     get_constant_thrust, set_constant_thrust,
-    xcg_file_is_enable, get_xcg_file_name, set_xcg_file_name,
-    moi_file_is_enable, get_moi_file_name, set_moi_file_name,
     poi_file_is_enable,
 )
 from runner_tool.runner_montecarlo import _SCALAR_PARAM_REGISTRY, _POI_COMPONENTS, _POI_PARAM_NAMES
@@ -155,8 +154,8 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
         thrust_time_arr, thrust_vac_arr, thrust_mdot_arr = arr[:, 0], arr[:, 1], arr[:, 2]
 
     # POI file-mode base curves, loaded once only for the components actually varied here
-    # (other components are just re-pathed to absolute below; loading them is unnecessary
-    # and would fail if their file paths are blank).
+    # (other components are copied into the cases dir and referenced by basename; loading
+    # them is unnecessary and would fail if their file paths are blank).
     poi_base_by_name = {}
     if poi_file_is_enable(rocket_param):
         poi_varied = {pn for cdef in case_defs for pn, _, _ in cdef[7]} & _POI_PARAM_NAMES
@@ -168,6 +167,14 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
     calc_dir = 'cases'
     os.mkdir(work_dir + '/' + calc_dir)
     prefix = work_dir + '/' + calc_dir + '/'
+
+    # Make the work directory self-contained (reproducible without projects/**): copy every
+    # referenced input into cases/ flattened to its basename, like trajectory/area/montecarlo.
+    # Each case then references inputs by basename; varied parameters overwrite those with
+    # per-case scaled files written below. This also rewrites solver_config's wind path to a
+    # basename, which the per-case deepcopies inherit.
+    copy_config_files(solver_config, work_dir + '/' + calc_dir)
+    copy_wind_file(solver_config, work_dir + '/' + calc_dir)
 
     def _generate_case(cdef):
         cn, display_name, var, unit, nominal_value, param_value, effects_detail, effects_list = cdef
@@ -216,32 +223,11 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
                     rp = set_constant_CA(rp, new_val)
                     rp = set_constant_burnoutCA(rp, new_val)
 
-        # Fix absolute paths for file-based parameters not being varied
-        if CA_file_is_enable(rocket_param) and 'CA' not in varied_pnames:
-            abs_ca = os.path.abspath(get_CA_file_name(rocket_param))
-            rp = set_CA_file_name(rp, abs_ca)
-            rp = set_burnoutCA_file_name(rp, abs_ca)
-
-        if thrust_file_is_enable(engine_param) and 'Thrust' not in varied_pnames:
-            ep = set_thrust_file_name(ep, os.path.abspath(get_thrust_file_name(engine_param)))
-
-        if xcg_file_is_enable(rocket_param):
-            rp = set_xcg_file_name(rp, os.path.abspath(get_xcg_file_name(rocket_param)))
-
-        if moi_file_is_enable(rocket_param):
-            rp = set_moi_file_name(rp, os.path.abspath(get_moi_file_name(rocket_param)))
-
-        # POI components not being varied keep their original file (re-pathed to absolute,
-        # since sensitivity cases run from the cases dir and nothing copies inputs there).
-        if poi_file_is_enable(rocket_param):
-            for _pname, _fget, _fset, _label in _POI_COMPONENTS:
-                if _pname not in varied_pnames:
-                    rp = _fset(rp, os.path.abspath(_fget(rocket_param)))
-
-        # Fix wind path
-        wind_path = sc['Wind Condition'].get('Wind File Path', '')
-        if wind_path:
-            sc['Wind Condition']['Wind File Path'] = os.path.abspath(wind_path)
+        # Non-varied file-based inputs (CA, Thrust, XCG, MOI, X-C.P., CNa, POI, ...) keep the
+        # basenames carried over by the deepcopy and resolve against the copies that
+        # copy_config_files()/copy_wind_file() placed in cases/. No absolute paths into
+        # projects/** are written, so the work directory stays self-contained and
+        # reproducible. Varied parameters were already overwritten above with per-case files.
 
         # Write case JSON files
         rp_file  = f'{cn}_rocket_param.json'

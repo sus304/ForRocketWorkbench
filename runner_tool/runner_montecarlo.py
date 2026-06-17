@@ -6,7 +6,7 @@ import numpy as np
 from scipy.stats import truncnorm
 from concurrent import futures
 
-from runner_tool.json_api import copy_config_files
+from runner_tool.json_api import copy_config_files, copy_wind_file
 from runner_tool.json_api import get_stage_config, get_stage_config_file_name, set_constant_burnoutCA
 from runner_tool.json_api import get_rocket_param, get_rocket_param_file_name
 from runner_tool.json_api import get_engine_param, get_engine_param_file_name
@@ -199,6 +199,10 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
                 extra_files.append(new_name)
             wind_files = wind_files + extra_files
         np.random.shuffle(wind_files)
+    else:
+        # Wind error disabled: every case uses the nominal wind file. Copy it into cases/ once
+        # and rewrite solver_config's path to its basename so cases stay self-contained.
+        copy_wind_file(solver_config, work_dir+'/'+calc_dir)
 
     # ---- CA ---------------------------------------------------------
     # file mode: CA_list[i] = scaled array; ca_mach_array = shared mach axis
@@ -333,9 +337,10 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
                 rocket_param_case = set_CA_file_name(rocket_param_case, CA_file_name)
                 rocket_param_case = set_burnoutCA_file_name(rocket_param_case, CA_file_name)
             else:
-                ca_abs = os.path.abspath(get_CA_file_name(rocket_param))
-                rocket_param_case = set_CA_file_name(rocket_param_case, ca_abs)
-                rocket_param_case = set_burnoutCA_file_name(rocket_param_case, ca_abs)
+                # Not perturbed: reference the copy placed in cases/ by basename (self-contained).
+                ca_base = os.path.basename(get_CA_file_name(rocket_param))
+                rocket_param_case = set_CA_file_name(rocket_param_case, ca_base)
+                rocket_param_case = set_burnoutCA_file_name(rocket_param_case, ca_base)
         else:
             if ep_ca.get('Enable'):
                 rocket_param_case = set_constant_CA(rocket_param_case, CA_list[case_num])
@@ -351,7 +356,7 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
                 rocket_param_case = set_xcg_file_name(rocket_param_case, xcg_file_name)
             else:
                 rocket_param_case = set_xcg_file_name(rocket_param_case,
-                                                       os.path.abspath(get_xcg_file_name(rocket_param)))
+                                                       os.path.basename(get_xcg_file_name(rocket_param)))
         elif xcg_samples is not None:
             rocket_param_case = set_constant_xcg(rocket_param_case, xcg_samples[case_num])
 
@@ -370,7 +375,7 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
                 rocket_param_case = set_moi_file_name(rocket_param_case, moi_file_name)
             else:
                 rocket_param_case = set_moi_file_name(rocket_param_case,
-                                                       os.path.abspath(get_moi_file_name(rocket_param)))
+                                                       os.path.basename(get_moi_file_name(rocket_param)))
         elif moi_samples is not None:
             mult = moi_samples[case_num]
             rocket_param_case = set_constant_moi_yaw(rocket_param_case,
@@ -401,7 +406,7 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
                 engine_param_case = set_thrust_file_name(engine_param_case, thrust_csv_file_name)
             else:
                 engine_param_case = set_thrust_file_name(engine_param_case,
-                                                          os.path.abspath(get_thrust_file_name(engine_param)))
+                                                          os.path.basename(get_thrust_file_name(engine_param)))
         elif thrust_constant_samples is not None:
             engine_param_case = set_constant_thrust(engine_param_case, thrust_constant_samples[case_num])
 
@@ -411,9 +416,8 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
             shutil.copy(work_dir+'/'+winds_dir+'/'+wind_file_name,
                         work_dir+'/'+calc_dir+'/'+wind_file_name)
             solver_config_case['Wind Condition']['Wind File Path'] = wind_file_name
-        else:
-            wind_abs = os.path.abspath(solver_config_case['Wind Condition']['Wind File Path'])
-            solver_config_case['Wind Condition']['Wind File Path'] = wind_abs
+        # else: the nominal wind was copied into cases/ and rewritten to its basename before
+        # the pool (copy_wind_file); the deepcopy carries that basename, so nothing to do here.
         solver_config_case['Wind Condition']['Enable Wind'] = True
 
         # Generic scalar parameters (azimuth, elevation, masses, aero coeffs, parachute, etc.)

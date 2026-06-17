@@ -1,0 +1,12 @@
+{
+  "apogee_altitude_m": 29578.1623885,
+  "apogee_time_s": 77.2142,
+  "apogee_downrange_m": 1695.28537599,
+  "max_dynamic_pressure_kPa": 272.9030825,
+  "max_mach": 3.37010938,
+  "max_acc_body_G": 8.98993525,
+  "landing_downrange_m": 16352.53042379,
+  "landing_lat_deg": 31.27079738,
+  "landing_lon_deg": 131.24997584,
+  "flight_duration_s": 1020.8594
+}

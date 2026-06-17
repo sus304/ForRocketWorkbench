@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, dev_major-update ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install test dependencies
+        # Desktop/build-only deps (pyqt5, pyinstaller) are intentionally omitted — the test
+        # import chain does not touch them.
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy scipy pandas matplotlib simplekml tqdm psutil \
+                      requests semantic-version "sqlalchemy>=2.0" "nicegui>=1.4" pytest
+      - name: Run tests
+        # The ForRocket binary is not in the repo, so binary-dependent end-to-end tests
+        # skip automatically (conftest's binary_path fixture). The binary-independent
+        # subset (unit, copy, self-containment guards, stats rebuild, import/dashboard) runs.
+        env:
+          MPLBACKEND: Agg
+        run: pytest tests/ -v

@@ -410,6 +410,33 @@ def set_secondary_parachute_open_time(soe, time):
 
 
 ## Json's Copy #############################
+# Single source of truth for the "Enable * File"-gated file inputs of a rocket/engine config.
+# Each entry is (enable_key, block_key, path_key). copy_config_files() walks these lists, and
+# the test suite imports the SAME lists, so a key typo can no longer drift between product code
+# and a hand-maintained test mirror (the 'CldFile Path' regression: copy_config_files and a test
+# fixture shared the typo and validated each other while the real GUI-written config used the
+# correct key, crashing only in production). To add a new file input, edit only this list.
+ROCKET_FILE_INPUT_SPECS = [
+    ('Enable Program Attitude', 'Program Attitude', 'File Path'),
+    ('Enable X-C.G. File', 'X-C.G. File', 'X-C.G. File Path'),
+    ('Enable M.I. File', 'M.I. File', 'M.I. File Path'),
+    ('Enable X-C.P. File', 'X-C.P. File', 'X-C.P. File Path'),
+    ('Enable CA File', 'CA File', 'CA File Path'),
+    ('Enable CA File', 'CA File', 'BurnOut CA File Path'),
+    ('Enable CNa File', 'CNa File', 'CNa File Path'),
+    ('Enable Cld File', 'Cld File', 'Cld File Path'),
+    ('Enable Clp File', 'Clp File', 'Clp File Path'),
+    ('Enable Cmq File', 'Cmq File', 'Cmq File Path'),
+    ('Enable Cnr File', 'Cnr File', 'Cnr File Path'),
+    ('Enable Product of Inertia File', 'Product of Inertia File', 'Ixy File Path'),
+    ('Enable Product of Inertia File', 'Product of Inertia File', 'Ixz File Path'),
+    ('Enable Product of Inertia File', 'Product of Inertia File', 'Iyz File Path'),
+]
+ENGINE_FILE_INPUT_SPECS = [
+    ('Enable Thrust File', 'Thrust File', 'Thrust at vacuum File Path'),
+]
+
+
 def _file_copy_by_param(param, enable_item, file_block_item, path_item, dst_dir):
     if param.get(enable_item):
         path = param.get(file_block_item).get(path_item)
@@ -435,24 +462,32 @@ def copy_config_files(solver_config, dst_dir):
 
         # from rocket config
         rocket_param = get_rocket_param(stage_config)
-        _file_copy_by_param(rocket_param, 'Enable Program Attitude', 'Program Attitude', 'File Path', dst_dir)
-        _file_copy_by_param(rocket_param, 'Enable X-C.G. File', 'X-C.G. File', 'X-C.G. File Path', dst_dir)
-        _file_copy_by_param(rocket_param, 'Enable M.I. File', 'M.I. File', 'M.I. File Path', dst_dir)
-        _file_copy_by_param(rocket_param, 'Enable X-C.P. File', 'X-C.P. File', 'X-C.P. File Path', dst_dir)
-        _file_copy_by_param(rocket_param, 'Enable CA File', 'CA File', 'CA File Path', dst_dir)
-        _file_copy_by_param(rocket_param, 'Enable CA File', 'CA File', 'BurnOut CA File Path', dst_dir)
-        _file_copy_by_param(rocket_param, 'Enable CNa File', 'CNa File', 'CNa File Path', dst_dir)
-        _file_copy_by_param(rocket_param, 'Enable Cld File', 'Cld File', 'CldFile Path', dst_dir)
-        _file_copy_by_param(rocket_param, 'Enable Clp File', 'Clp File', 'Clp File Path', dst_dir)
-        _file_copy_by_param(rocket_param, 'Enable Cmq File', 'Cmq File', 'Cmq File Path', dst_dir)
-        _file_copy_by_param(rocket_param, 'Enable Cnr File', 'Cnr File', 'Cnr File Path', dst_dir)
-        _file_copy_by_param(rocket_param, 'Enable Product of Inertia File', 'Product of Inertia File', 'Ixy File Path', dst_dir)
-        _file_copy_by_param(rocket_param, 'Enable Product of Inertia File', 'Product of Inertia File', 'Ixz File Path', dst_dir)
-        _file_copy_by_param(rocket_param, 'Enable Product of Inertia File', 'Product of Inertia File', 'Iyz File Path', dst_dir)
+        for enable_key, block_key, path_key in ROCKET_FILE_INPUT_SPECS:
+            _file_copy_by_param(rocket_param, enable_key, block_key, path_key, dst_dir)
 
         # from engine config
         engine_param = get_engine_param(stage_config)
-        _file_copy_by_param(engine_param, 'Enable Thrust File', 'Thrust File', 'Thrust at vacuum File Path', dst_dir)
+        for enable_key, block_key, path_key in ENGINE_FILE_INPUT_SPECS:
+            _file_copy_by_param(engine_param, enable_key, block_key, path_key, dst_dir)
+
+
+def copy_wind_file(solver_config, dst_dir):
+    """Copy the wind file referenced by solver_config into dst_dir (flattened to its
+    basename) and rewrite the config's 'Wind File Path' to that basename, so the case is
+    self-contained and resolves against the work directory at run time.
+
+    copy_config_files() handles rocket/engine inputs but not the wind file (a solver-config
+    level input), so runners that need a self-contained work directory call this as well.
+    No-op returning '' when wind is disabled or no path is set; mutates solver_config in place.
+    """
+    wind_condition = solver_config.get('Wind Condition', {})
+    wind_path = wind_condition.get('Wind File Path', '')
+    if not wind_path:
+        return ''
+    base = os.path.basename(wind_path)
+    shutil.copy2(wind_path, os.path.join(dst_dir, base))
+    wind_condition['Wind File Path'] = base
+    return base
 
 
 
