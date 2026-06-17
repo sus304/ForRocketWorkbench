@@ -62,16 +62,27 @@ def post_sensitivity(sensitivity_work_dir, calc_dir='cases'):
             param_df_sorted = param_df.sort_values('variation')
 
             if method == 'two_point':
-                if ref_vars is not None:
+                def _resolve_ref(value):
+                    """Map a reference variation to a row. A matching perturbed case wins;
+                    variation 0 falls back to the nominal case (case 0), which is excluded
+                    from param_df, so it is synthesized here from nominal_altitude/value."""
                     tol = 1e-9
-                    lo = param_df[np.abs(param_df['variation'] - ref_vars[0]) < tol]
-                    hi = param_df[np.abs(param_df['variation'] - ref_vars[1]) < tol]
-                    if lo.empty or hi.empty:
+                    match = param_df[np.abs(param_df['variation'] - value) < tol]
+                    if not match.empty:
+                        return match.iloc[0]
+                    if abs(value) < tol:
+                        return pd.Series({'altitude_apogee [m]': nominal_altitude,
+                                          'param_value': nominal_val,
+                                          'variation': 0.0})
+                    return None
+
+                if ref_vars is not None:
+                    lo_row = _resolve_ref(ref_vars[0])
+                    hi_row = _resolve_ref(ref_vars[1])
+                    if lo_row is None or hi_row is None:
                         print(f'Warning: {param_name} Reference Variations {ref_vars} '
                               'not found in Variations list; using min/max instead.')
                         lo_row, hi_row = param_df_sorted.iloc[0], param_df_sorted.iloc[-1]
-                    else:
-                        lo_row, hi_row = lo.iloc[0], hi.iloc[0]
                 else:
                     lo_row, hi_row = param_df_sorted.iloc[0], param_df_sorted.iloc[-1]
 
@@ -91,8 +102,14 @@ def post_sensitivity(sensitivity_work_dir, calc_dir='cases'):
                     delta_pct = ((pval_hi - nominal_val) - (pval_lo - nominal_val)) / nominal_val * 100 \
                         if nominal_val != 0 else float('nan')
 
-                sens_per_unit = delta_alt / delta_param if delta_param != 0 else float('nan')
                 sens_per_pct  = delta_alt / delta_pct  if delta_pct  != 0 else float('nan')
+                # When the input unit is '%', "1 unit" IS "1 %": report the same value for
+                # both columns. Dividing by the physical delta would re-apply the percent
+                # conversion (a 100/nominal factor — exactly 100x for nominal=1 file modes).
+                if unit == '%':
+                    sens_per_unit = sens_per_pct
+                else:
+                    sens_per_unit = delta_alt / delta_param if delta_param != 0 else float('nan')
 
             elif method == 'linear_fit':
                 lo_row = param_df_sorted.iloc[0]
@@ -101,11 +118,12 @@ def post_sensitivity(sensitivity_work_dir, calc_dir='cases'):
                 pval_lo, pval_hi = lo_row['param_value'], hi_row['param_value']
                 var_lo, var_hi = lo_row['variation'], hi_row['variation']
 
-                slope_unit, *_ = linregress(param_df['param_value'], param_df['altitude_apogee [m]'])
-
                 if unit == '%':
                     slope_pct, *_ = linregress(param_df['variation'], param_df['altitude_apogee [m]'])
+                    # input unit IS '%': per-unit == per-% (see two_point note above).
+                    slope_unit = slope_pct
                 else:
+                    slope_unit, *_ = linregress(param_df['param_value'], param_df['altitude_apogee [m]'])
                     if nominal_val != 0:
                         pct_vals = (param_df['param_value'] - nominal_val) / nominal_val * 100
                     else:

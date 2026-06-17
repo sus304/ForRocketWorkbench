@@ -212,10 +212,32 @@ def test_two_point_sensitivity_math(tmp_path):
     # over delta_pct = 10%  → sensitivity = -200 m/%
     assert row["sensitivity [m/%]"] == pytest.approx(-200.0, abs=0.01)
 
-    # m/unit = delta_alt / delta_param_value
-    # delta_param_value = 150*1.05 - 150*0.95 = 15 kg → -2000/15 ≈ -133.33 m/kg
-    expected_per_kg = -2000.0 / (150.0 * 0.10)
-    assert row["sensitivity [m/unit]"] == pytest.approx(expected_per_kg, rel=1e-4)
+    # input unit is '%', so "1 unit" == "1 %": [m/unit] reports the per-percent value too
+    assert row["sensitivity [m/unit]"] == pytest.approx(-200.0, abs=0.01)
+
+
+def test_two_point_nominal_reference(tmp_path):
+    """A reference variation of 0 falls back to the nominal case (case 0), enabling a
+    one-sided reference like nominal→+5%. The nominal point is not a perturbed case, so
+    post must synthesize it from nominal_altitude/value."""
+    nominal_mass = 150.0   # kg
+    nominal_alt  = 35_000.0  # m
+    work_dir = _setup_mock_workdir(
+        tmp_path, nominal_mass, nominal_alt,
+        variations=[-5.0, -2.0, 2.0, 5.0], unit="%", alt_per_pct=-200.0,
+        ref_vars=[0.0, 5.0],
+    )
+    post_sensitivity(str(work_dir))
+
+    row = pd.read_csv(work_dir / "sensitivity_results.csv").iloc[0]
+
+    # one-sided nominal→+5%: delta_alt = (35000-200*5) - 35000 = -1000 over delta_pct = 5%
+    assert row["sensitivity [m/%]"] == pytest.approx(-200.0, abs=0.01)
+    # low endpoint is the nominal altitude/value itself
+    assert row["altitude_low [m]"] == pytest.approx(nominal_alt, abs=0.01)
+    assert row["variation_low"] == pytest.approx(0.0, abs=1e-9)
+    # input unit is '%', so [m/unit] == [m/%]
+    assert row["sensitivity [m/unit]"] == pytest.approx(-200.0, abs=0.01)
 
 
 def test_linear_fit_matches_two_point_on_linear_data(tmp_path):
@@ -325,23 +347,20 @@ def test_sensitivity_cases_csv_has_altitude_for_all_cases(tmp_path):
 
 
 def test_sensitivity_unit_consistency(tmp_path):
-    """sensitivity [m/unit] * (nominal * 0.01) ≈ sensitivity [m/%] for %-variation params."""
+    """For %-variation params "1 unit" IS "1 %", so [m/unit] must equal [m/%]."""
     work_dir = _setup_mock_workdir(
         tmp_path, 150.0, 35_000.0, [-5.0, -2.0, 2.0, 5.0], "%", -200.0
     )
     post_sensitivity(str(work_dir))
 
     results = pd.read_csv(tmp_path / "sensitivity_results.csv")
-    cases   = pd.read_csv(tmp_path / "sensitivity_case_list.csv")
 
     for _, row in results.iterrows():
         if row["variation_unit"] != "%":
             continue
-        nominal = row["nominal_value"]
-        # sensitivity [m/unit] × (nominal × 0.01) should equal sensitivity [m/%]
-        reconstructed = row["sensitivity [m/unit]"] * nominal * 0.01
-        assert reconstructed == pytest.approx(row["sensitivity [m/%]"], rel=1e-3), (
-            f"{row['param_name']}: reconstructed {reconstructed:.4f} ≠ {row['sensitivity [m/%]']:.4f}"
+        assert row["sensitivity [m/unit]"] == pytest.approx(row["sensitivity [m/%]"], rel=1e-3), (
+            f"{row['param_name']}: [m/unit] {row['sensitivity [m/unit]']:.4f} "
+            f"≠ [m/%] {row['sensitivity [m/%]']:.4f}"
         )
 
 
@@ -580,13 +599,12 @@ def test_integration_higher_thrust_raises_apogee(example_sensitivity_results):
 
 
 def test_integration_unit_consistency(example_sensitivity_results):
-    """For %-variation params: sensitivity [m/unit] × nominal × 0.01 ≈ sensitivity [m/%]."""
+    """For %-variation params "1 unit" IS "1 %", so [m/unit] must equal [m/%]."""
     _, results, _ = example_sensitivity_results
     for _, row in results.iterrows():
         if row["variation_unit"] != "%":
             continue
-        nominal = row["nominal_value"]
-        reconstructed = row["sensitivity [m/unit]"] * nominal * 0.01
-        assert reconstructed == pytest.approx(row["sensitivity [m/%]"], rel=1e-3), (
-            f"{row['param_name']}: reconstructed {reconstructed:.4f} ≠ {row['sensitivity [m/%]']:.4f}"
+        assert row["sensitivity [m/unit]"] == pytest.approx(row["sensitivity [m/%]"], rel=1e-3), (
+            f"{row['param_name']}: [m/unit] {row['sensitivity [m/unit]']:.4f} "
+            f"≠ [m/%] {row['sensitivity [m/%]']:.4f}"
         )

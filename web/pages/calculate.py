@@ -880,11 +880,15 @@ def _build_sensitivity_form(data: dict, container, proj=None):
             else:
                 ui.label('(no values)').classes('text-caption text-grey')
         row['count_lbl'].set_text(f'{len(vals)} case(s)')
-        for key, default in (('ref_lo', vals[0] if vals else None),
-                             ('ref_hi', vals[-1] if vals else None)):
+        # Reference options = the variation values plus a nominal (0) point, so a one-sided
+        # reference like nominal→+10% can be built. nominal is always run as case 0.
+        ref_vals = sorted(set(vals) | {0.0})
+        ref_opts = {v: ('nominal (0)' if v == 0 else str(v)) for v in ref_vals}
+        for key, default in (('ref_lo', ref_vals[0]),
+                             ('ref_hi', ref_vals[-1])):
             sel = row[key]
-            sel.options = vals
-            if sel.value not in vals:
+            sel.options = ref_opts
+            if sel.value not in ref_opts:
                 sel.value = default
             sel.update()
 
