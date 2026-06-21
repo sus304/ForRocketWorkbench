@@ -402,11 +402,40 @@ def _sensitivity_tornado_opts(df: pd.DataFrame) -> dict:
     dc['range']    = (dc['hi_delta'] - dc['lo_delta']).abs()
     dc = dc.sort_values('range', ascending=True)
 
-    params  = dc['param_name'].tolist()
-    offsets = [float(min(r.lo_delta, r.hi_delta)) for _, r in dc.iterrows()]
-    widths  = [float(abs(r.hi_delta - r.lo_delta))  for _, r in dc.iterrows()]
-    colors  = ['#42a5f5' if r.hi_delta >= r.lo_delta else '#ffa726' for _, r in dc.iterrows()]
-    width_data = [{'value': w, 'itemStyle': {'color': c}} for w, c in zip(widths, colors)]
+    params = dc['param_name'].tolist()
+    # Floating bar from lo_delta -> hi_delta for each parameter (row i).
+    # A stacked transparent-offset bar breaks for negative starts, because ECharts
+    # stacks positive and negative values from 0 in separate groups — a bar that
+    # extends into negative apogee change would render on the wrong side / vanish.
+    # A custom series draws each bar as an explicit rectangle, so any sign works.
+    bar_data = [
+        {'value': [i, float(r.lo_delta), float(r.hi_delta)],
+         'name': r.param_name,
+         'itemStyle': {'color': '#42a5f5' if r.hi_delta >= r.lo_delta else '#ffa726'}}
+        for i, (_, r) in enumerate(dc.iterrows())
+    ]
+
+    render_item = (
+        'function (params, api) {'
+        '  var ci = api.value(0);'
+        '  var p1 = api.coord([api.value(1), ci]);'
+        '  var p2 = api.coord([api.value(2), ci]);'
+        '  var h = api.size([0, 1])[1] * 0.6;'
+        '  var xLeft = Math.min(p1[0], p2[0]);'
+        '  var w = Math.abs(p2[0] - p1[0]);'
+        '  return {'
+        '    type: "rect",'
+        '    shape: { x: xLeft, y: p1[1] - h / 2, width: w, height: h },'
+        '    style: api.style()'
+        '  };'
+        '}'
+    )
+    tip_formatter = (
+        'function (p) {'
+        '  var v = p.value;'
+        '  return p.name + "<br/>low: " + v[1].toFixed(1) + " m<br/>high: " + v[2].toFixed(1) + " m";'
+        '}'
+    )
 
     d = _D
     return {
@@ -415,7 +444,8 @@ def _sensitivity_tornado_opts(df: pd.DataFrame) -> dict:
         'title': {'text': 'Sensitivity Tornado Chart',
                   'textStyle': {'color': d['ax'], 'fontSize': 12},
                   'left': 'center', 'top': 4},
-        'tooltip': {'trigger': 'axis', 'axisPointer': {'type': 'shadow'},
+        'tooltip': {'trigger': 'item',
+                    ':formatter': tip_formatter,
                     'backgroundColor': '#1e1e2e', 'borderColor': d['border'],
                     'textStyle': {'color': '#ccc', 'fontSize': 10}},
         'grid': {'top': 36, 'left': '22%', 'right': '8%', 'bottom': 36},
@@ -435,15 +465,10 @@ def _sensitivity_tornado_opts(df: pd.DataFrame) -> dict:
         },
         'series': [
             {
-                'type': 'bar', 'stack': 'tornado',
-                'data': offsets,
-                'itemStyle': {'color': 'transparent'},
-                'emphasis': {'disabled': True},
-                'tooltip': {'show': False},
-            },
-            {
-                'type': 'bar', 'stack': 'tornado',
-                'data': width_data,
+                'type': 'custom',
+                ':renderItem': render_item,
+                'encode': {'x': [1, 2], 'y': 0},
+                'data': bar_data,
                 'markLine': {
                     'symbol': ['none', 'none'],
                     'data': [{'xAxis': 0}],
