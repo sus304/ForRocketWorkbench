@@ -152,6 +152,159 @@ def test_montecarlo_stats_only_pipeline_without_binary(monkeypatch, project_copy
     assert (result['altitude_apogee'] == 400.0).all()
 
 
+def test_montecarlo_writes_completion_manifest(monkeypatch, project_copy):
+    """Resumability foundation: a normal run must record every completed case in the
+    manifest, so an interrupted run can later skip them. Binary-independent."""
+    from runner_tool.run_manifest import RunManifest
+
+    case_count = 4
+
+    def _fake_run_solver(solver_config_json_file_path, cwd=None):
+        with open(solver_config_json_file_path) as f:
+            cfg = json.load(f)
+        _synthetic_flight_log().to_csv(f"{cfg['Model ID']}_stage1_flight_log.csv", index=False)
+    monkeypatch.setattr("runner_tool.runner_single.run_solver", _fake_run_solver)
+
+    disable_parachute(project_copy)
+    _disable_all_mc_errors(project_copy / "config_montecarlo.json", case_count, output_all_logs=False)
+    with chdir(str(project_copy)):
+        run_montecarlo("config_solver.json", "config_montecarlo.json")
+
+    work_dir = list(project_copy.glob("work_montecarlo*"))[0]
+    manifest_file = work_dir / RunManifest.FILENAME
+    assert manifest_file.exists(), "completion manifest was not written"
+    completed = {line.strip() for line in manifest_file.read_text().splitlines() if line.strip()}
+    expected = {f"{i}_solver_config.json" for i in range(case_count)}
+    assert completed == expected, f"manifest {completed} != expected {expected}"
+
+    # The incremental metrics file must hold one row per case (stats-only mode).
+    metrics = pd.read_csv(work_dir / CASE_METRICS_FILE)
+    assert len(metrics) == case_count
+
+
+def test_run_multi_skips_cases_recorded_in_manifest(monkeypatch, tmp_path):
+    """run_multi must re-run only the cases NOT already in the manifest, and append the
+    rest as they finish. This is the resume primitive that higher layers build on."""
+    from runner_tool.run_manifest import RunManifest
+    from runner_tool import runner_multi
+
+    cases_dir = tmp_path / "cases"
+    cases_dir.mkdir()
+    case_files = [f"{i}_solver_config.json" for i in range(5)]
+
+    ran = []
+    monkeypatch.setattr(runner_multi, "run_single", lambda f: ran.append(f))
+
+    # Pretend cases 0 and 2 already completed in a prior (interrupted) run.
+    manifest = RunManifest(str(tmp_path))
+    manifest.mark("0_solver_config.json")
+    manifest.mark("2_solver_config.json")
+
+    runner_multi.run_multi(str(cases_dir), case_files, manifest=manifest)
+
+    assert sorted(ran) == ["1_solver_config.json", "3_solver_config.json", "4_solver_config.json"]
+    # All five are now recorded complete (the two pre-existing plus the three just run).
+    assert manifest.completed() == set(case_files)
+
+
+def test_watch_stop_flag_sets_event_when_file_appears(tmp_path):
+    """The web service pauses a montecarlo subprocess by creating a stop-flag file;
+    runner._watch_stop_flag must turn that into the stop_event the runner already honors.
+    Cross-platform pause primitive (no signals)."""
+    import threading
+    import time
+    import runner
+
+    flag = tmp_path / "stop.flag"
+    ev = threading.Event()
+    runner._watch_stop_flag(str(flag), ev, poll_sec=0.02)
+    assert not ev.is_set(), "event must stay clear until the flag file exists"
+
+    flag.write_text("stop")
+    for _ in range(200):  # up to ~4s; normally trips within one poll
+        if ev.is_set():
+            break
+        time.sleep(0.02)
+    assert ev.is_set(), "stop_event must be set once the flag file appears"
+
+
+def test_run_multi_stop_event_pauses_without_starting_new_cases(monkeypatch, tmp_path):
+    """A stop_event set before the pool runs must prevent any un-started case from
+    running, and (crucially) those cases must stay OUT of the manifest so resume re-runs
+    them. The cooperative pause primitive that the CLI's Ctrl-C handler drives."""
+    import threading
+    from runner_tool.run_manifest import RunManifest
+    from runner_tool import runner_multi
+
+    cases_dir = tmp_path / "cases"
+    cases_dir.mkdir()
+    case_files = [f"{i}_solver_config.json" for i in range(4)]
+
+    ran = []
+    monkeypatch.setattr(runner_multi, "run_single", lambda f: ran.append(f))
+
+    manifest = RunManifest(str(tmp_path))
+    stop_event = threading.Event()
+    stop_event.set()  # already paused: no case should start
+
+    runner_multi.run_multi(str(cases_dir), case_files, manifest=manifest, stop_event=stop_event)
+
+    assert ran == [], "no case should run once a stop was requested"
+    assert manifest.completed() == set(), "un-started cases must not be marked complete"
+
+
+def test_montecarlo_resume_runs_only_remaining_cases(monkeypatch, project_copy):
+    """End-to-end resume: after an interruption, resume_montecarlo must re-run only the
+    cases not recorded complete, reusing the existing per-case inputs (no re-sampling),
+    and must not leave duplicate metric rows for a case whose metrics were written but
+    not yet marked complete (orphan-row reconciliation). Binary-independent."""
+    from runner_tool.run_manifest import RunManifest
+    from runner_tool.runner_montecarlo import resume_montecarlo
+
+    case_count = 5
+
+    runs = []
+
+    def _fake_run_solver(solver_config_json_file_path, cwd=None):
+        with open(solver_config_json_file_path) as f:
+            cfg = json.load(f)
+        runs.append(cfg['Model ID'])
+        _synthetic_flight_log().to_csv(f"{cfg['Model ID']}_stage1_flight_log.csv", index=False)
+    monkeypatch.setattr("runner_tool.runner_single.run_solver", _fake_run_solver)
+
+    disable_parachute(project_copy)  # one stage1 log per case, no ballistic split
+    _disable_all_mc_errors(project_copy / "config_montecarlo.json", case_count, output_all_logs=False)
+    with chdir(str(project_copy)):
+        run_montecarlo("config_solver.json", "config_montecarlo.json")
+
+    work_dir = list(project_copy.glob("work_montecarlo*"))[0]
+    assert len(runs) == case_count, "first run should execute every case once"
+    assert len(pd.read_csv(work_dir / CASE_METRICS_FILE)) == case_count
+
+    # Simulate an interruption after cases 0,1,2 were marked complete: rewind the manifest
+    # to {0,1,2} but leave the metrics rows for 3 and 4 in place (orphans), so resume must
+    # prune them before re-running 3 and 4 (else they'd be duplicated).
+    manifest_path = work_dir / RunManifest.FILENAME
+    manifest_path.write_text("\n".join(f"{i}_solver_config.json" for i in range(3)) + "\n")
+
+    runs.clear()
+    with chdir(str(project_copy)):
+        resume_montecarlo("config_montecarlo.json", str(work_dir))
+
+    # Only the unfinished cases re-run.
+    reran = sorted({int(m.split('_', 1)[0]) for m in runs})
+    assert reran == [3, 4], f"resume re-ran {reran}, expected [3, 4]"
+
+    # Exactly one metric row per case — orphans pruned, no duplicates.
+    metrics_after = pd.read_csv(work_dir / CASE_METRICS_FILE)
+    assert sorted(metrics_after['case'].tolist()) == list(range(case_count))
+
+    # Manifest is now complete; post rebuilds the full result table.
+    assert RunManifest(str(work_dir)).completed() == {f"{i}_solver_config.json" for i in range(case_count)}
+    post_montecarlo(str(work_dir))
+    assert len(pd.read_csv(work_dir / "result_table.csv")) == case_count
+
+
 def test_montecarlo_poi_file_mode_writes_scaled_per_case_files(monkeypatch, project_copy):
     """POI in file mode: each component whose error is enabled must get a per-case CSV
     holding the base curve scaled by a single multiplier, with the case rocket_param

@@ -5,7 +5,9 @@ from fastapi import Request
 from nicegui import ui
 
 from web.pages.shared import build_header
-from web.services.calc_service import current_job, start_calculation, cancel_calculation
+from web.services.calc_service import (
+    current_job, start_calculation, cancel_calculation, pause_calculation, resume_calculation,
+)
 from web.services.project_service import (
     scan_projects, get_project_files, load_json, save_json, create_project,
 )
@@ -1255,6 +1257,11 @@ def calculate_page(request: Request):
 
             with ui.row().classes('q-gutter-sm items-center'):
                 run_btn    = ui.button('Run', icon='play_arrow', on_click=lambda: _on_run()).props('color=primary')
+                resume_btn = ui.button('Resume', icon='play_arrow', on_click=lambda: _on_resume()).props('color=primary')
+                resume_btn.set_visibility(False)
+                # Pause is montecarlo-only: graceful suspend with a resumable work dir.
+                pause_btn  = ui.button('Pause', icon='pause', on_click=pause_calculation).props('color=warning flat dense')
+                pause_btn.set_visibility(False)
                 cancel_btn = ui.button('Cancel', on_click=cancel_calculation).props('color=negative flat dense')
                 cancel_btn.set_visibility(False)
 
@@ -1266,37 +1273,51 @@ def calculate_page(request: Request):
 
             result_area = ui.column().classes('q-mt-sm')
 
+            def _show_buttons(run=False, resume=False, pause=False, cancel=False):
+                run_btn.set_visibility(run)
+                resume_btn.set_visibility(resume)
+                pause_btn.set_visibility(pause)
+                cancel_btn.set_visibility(cancel)
+
             def _on_run():
                 proj = project_select.value
                 mode = mode_radio.value
                 if not proj:
                     ui.notify('Please select a project.', type='warning')
                     return
-                if current_job().status == 'running':
+                if current_job().status in ('running', 'pausing', 'paused'):
                     ui.notify('A calculation is already running.', type='warning')
                     return
-                run_btn.set_visibility(False)
-                cancel_btn.set_visibility(True)
+                _show_buttons(pause=(mode == 'montecarlo'), cancel=True)
                 progress_area.set_visibility(True)
                 result_area.clear()
                 start_calculation(proj, mode, max_thread_check.value)
+
+            def _on_resume():
+                _show_buttons(pause=(current_job().mode == 'montecarlo'), cancel=True)
+                result_area.clear()
+                resume_calculation()
 
             _st = {'status': current_job().status}
 
             def _refresh_progress():
                 job    = current_job()
                 status = job.status
-                if status in ('running', 'cancelling'):
-                    progress_label.set_text(
-                        f'Step {job.step}/4: {job.step_label}'
-                        + (' (cancelling…)' if status == 'cancelling' else '')
-                    )
+                is_mc  = job.mode == 'montecarlo'
+                if status in ('running', 'cancelling', 'pausing'):
+                    note = ''
+                    if status == 'cancelling':
+                        note = ' (cancelling…)'
+                    elif status == 'pausing':
+                        note = ' (pausing — finishing in-flight cases…)'
+                    progress_label.set_text(f'Step {job.step}/4: {job.step_label}{note}')
                     progress_bar.set_value(job.progress)
+                    # Pause only while genuinely running a montecarlo job.
+                    _show_buttons(pause=(is_mc and status == 'running'), cancel=True)
                 elif status != _st['status']:
                     _st['status'] = status
                     if status == 'completed':
-                        run_btn.set_visibility(True)
-                        cancel_btn.set_visibility(False)
+                        _show_buttons(run=True)
                         progress_label.set_text('Completed.')
                         progress_bar.set_value(1.0)
                         result_area.clear()
@@ -1308,14 +1329,18 @@ def calculate_page(request: Request):
                                 on_click=lambda cid=_cid: ui.navigate.to(f'/result/{cid}'),
                             ).props('color=positive icon=open_in_new').classes('w-full q-mb-xs')
 
+                    elif status == 'paused':
+                        # Resume continues the same work dir; Run starts a fresh calculation.
+                        _show_buttons(run=True, resume=True)
+                        progress_label.set_text('Paused — resume to finish the remaining cases.')
+                        ui.notify('Calculation paused. Resume to continue.', type='info')
+
                     elif status == 'failed':
-                        run_btn.set_visibility(True)
-                        cancel_btn.set_visibility(False)
+                        _show_buttons(run=True)
                         progress_label.set_text(f'Failed: {job.error}')
                         ui.notify(f'Calculation failed: {job.error}', type='negative')
                     elif status == 'cancelled':
-                        run_btn.set_visibility(True)
-                        cancel_btn.set_visibility(False)
+                        _show_buttons(run=True)
                         progress_label.set_text('Cancelled.')
 
             ui.timer(0.5, _refresh_progress)

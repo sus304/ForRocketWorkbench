@@ -1,5 +1,6 @@
 import os
 import glob
+import threading
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -38,6 +39,23 @@ _MC_COLS = [
 ]
 
 
+def _metrics_row(case_num, is_ballistic, m):
+    """Build one CASE_METRICS_FILE row dict from a post_summary_for_montecarlo() tuple."""
+    (dyn_q, mach, t_apogee, alt, vel_apogee, pos_landing, downrange,
+     peak_aoa, aoa_lc, peak_spin, spin_bo, min_sg, min_res, max_trim, max_lat) = m
+    return {
+        'type': 'ballistic' if is_ballistic else 'stage1',
+        'case': int(case_num), 'maxQ': dyn_q, 'mach': mach,
+        'time_apogee': t_apogee, 'altitude_apogee': alt, 'vel_apogee': vel_apogee,
+        'lat_impact': pos_landing[0], 'lon_impact': pos_landing[1],
+        'downrange_impact': downrange,
+        'peak_total_aoa': peak_aoa, 'aoa_launch_clear': aoa_lc,
+        'peak_spin_rate': peak_spin, 'spin_rate_burnout': spin_bo,
+        'min_sg': min_sg, 'min_resonance_ratio': min_res,
+        'max_trim_aoa': max_trim, 'max_lateral_aero_load': max_lat,
+    }
+
+
 def write_case_metrics(work_dir, collected):
     """Persist per-case Monte Carlo metrics (statistics-only mode) to CASE_METRICS_FILE.
 
@@ -46,24 +64,31 @@ def write_case_metrics(work_dir, collected):
     Written to work_dir so the later post phase can rebuild the statistics without the
     (already deleted) per-case flight logs.
     """
-    rows = []
-    for case_num, is_ballistic, m in collected:
-        (dyn_q, mach, t_apogee, alt, vel_apogee, pos_landing, downrange,
-         peak_aoa, aoa_lc, peak_spin, spin_bo, min_sg, min_res, max_trim, max_lat) = m
-        rows.append({
-            'type': 'ballistic' if is_ballistic else 'stage1',
-            'case': int(case_num), 'maxQ': dyn_q, 'mach': mach,
-            'time_apogee': t_apogee, 'altitude_apogee': alt, 'vel_apogee': vel_apogee,
-            'lat_impact': pos_landing[0], 'lon_impact': pos_landing[1],
-            'downrange_impact': downrange,
-            'peak_total_aoa': peak_aoa, 'aoa_launch_clear': aoa_lc,
-            'peak_spin_rate': peak_spin, 'spin_rate_burnout': spin_bo,
-            'min_sg': min_sg, 'min_resonance_ratio': min_res,
-            'max_trim_aoa': max_trim, 'max_lateral_aero_load': max_lat,
-        })
+    rows = [_metrics_row(case_num, is_ballistic, m) for case_num, is_ballistic, m in collected]
     df = pd.DataFrame(rows, columns=_CASE_METRICS_HEADER)
     df.sort_values(['type', 'case'], inplace=True)
     df.to_csv(os.path.join(work_dir, CASE_METRICS_FILE), index=False)
+
+
+class CaseMetricsWriter:
+    """Incrementally persist per-case metrics (statistics-only mode), appending one row
+    as each case completes instead of writing all rows once at the end.
+
+    This bounds the loss from an interrupted long run to the case currently in flight:
+    the metrics gathered so far are already on disk. Rows are appended in completion
+    order (not case order); the post phase sorts by case on read, so order does not
+    matter. Thread-safe: workers call :meth:`append` concurrently.
+    """
+
+    def __init__(self, work_dir):
+        self.path = os.path.join(work_dir, CASE_METRICS_FILE)
+        self._lock = threading.Lock()
+
+    def append(self, case_num, is_ballistic, m):
+        df = pd.DataFrame([_metrics_row(case_num, is_ballistic, m)], columns=_CASE_METRICS_HEADER)
+        with self._lock:
+            write_header = not os.path.exists(self.path)
+            df.to_csv(self.path, mode='a', header=write_header, index=False)
 
 
 def _process_one_case(log_file, kml_suffix=''):

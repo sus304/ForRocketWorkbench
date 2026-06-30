@@ -56,6 +56,7 @@ from runner_tool.json_api import get_poi_file_ixz, set_poi_file_ixz
 from runner_tool.json_api import get_poi_file_iyz, set_poi_file_iyz
 
 from runner_tool.runner_multi import run_multi
+from runner_tool.run_manifest import RunManifest
 
 from wind_tool.generate_montecarlo_wind import generate_montecarlo_2sigma_winds
 
@@ -155,7 +156,8 @@ class MontecarloCaseConfig:
         self.solver_config_file_name = case_solver_config_file_name
 
 
-def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_name, max_thread_run=False):
+def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_name, max_thread_run=False,
+                   stop_event=None):
     work_dir = make_unique_work_dir(runner_montecarlo_directory)
 
     with open(solver_config_json_file_name) as f:
@@ -469,24 +471,40 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
 
     case_solver_config_file_name_list = [case.solver_config_file_name for case in montecarlo_case_list]
 
-    ## 実行部 ############################################################
-    cases_dir = os.path.abspath(work_dir + '/' + calc_dir)
+    _execute_montecarlo_cases(work_dir, case_solver_config_file_name_list,
+                              montecarlo_config, max_thread_run, stop_event=stop_event)
+    ##############################################################
+
+
+def _execute_montecarlo_cases(work_dir, case_solver_config_file_name_list,
+                              montecarlo_config, max_thread_run, stop_event=None):
+    """Run (or resume) the per-case solvers for a Monte Carlo work dir.
+
+    Shared by the fresh-run path and resume_montecarlo(). A RunManifest makes this
+    idempotent: cases already recorded complete are skipped, so calling it again on the
+    same work_dir after an interruption runs only the remaining cases. stop_event, when
+    set during the run, pauses cleanly after in-flight cases finish.
+    """
+    cases_dir = os.path.abspath(work_dir + '/cases')
 
     # 既定: 全ケースのフライトログを残す（従来動作）。
     # False の場合は「統計のみ出力」モード: 1ケース完了ごとに統計を抽出してログを即削除し、
     # 同時にディスク上に存在するログを抑える（解析時間・ディスク容量に制約がある場合向け）。
+    manifest = RunManifest(os.path.abspath(work_dir))
+
     output_all_logs = montecarlo_config.get('Output All Case Logs', True)
     if output_all_logs:
-        run_multi(cases_dir, case_solver_config_file_name_list, max_thread_run)
+        run_multi(cases_dir, case_solver_config_file_name_list, max_thread_run,
+                  manifest=manifest, stop_event=stop_event)
     else:
         import glob as _glob
-        import threading as _threading
         import pandas as _pd
         from post_tool.post_summary import post_summary_for_montecarlo
-        from post_tool.post_montecarlo import _MC_COLS, write_case_metrics
+        from post_tool.post_montecarlo import _MC_COLS, CaseMetricsWriter
 
-        collected = []
-        collected_lock = _threading.Lock()
+        # Persist each case's metrics as it completes (instead of once at the end) so an
+        # interrupted long run keeps the metrics gathered so far. The writer is thread-safe.
+        metrics_writer = CaseMetricsWriter(os.path.abspath(work_dir))
 
         def _extract_and_delete(cdir, solver_config_file_name):
             case_num = int(os.path.basename(solver_config_file_name).split('_', 1)[0])
@@ -494,13 +512,77 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
                 is_ballistic = '_ballistic_' in os.path.basename(log_path)
                 df = _pd.read_csv(log_path, usecols=_MC_COLS)
                 metrics = post_summary_for_montecarlo(df)
-                with collected_lock:
-                    collected.append((case_num, is_ballistic, metrics))
+                metrics_writer.append(case_num, is_ballistic, metrics)
                 os.remove(log_path)
 
         run_multi(cases_dir, case_solver_config_file_name_list, max_thread_run,
-                  on_case_complete=_extract_and_delete)
-        write_case_metrics(os.path.abspath(work_dir), collected)
+                  on_case_complete=_extract_and_delete, manifest=manifest, stop_event=stop_event)
 
     print('Work Directory: ' + work_dir)
-    ##############################################################
+
+
+def _enumerate_case_solver_configs(cases_dir):
+    """Primary per-case solver-config file names in cases_dir, ordered by case number.
+
+    Excludes the *_ballistic.json variants generated per case at run time; only the
+    primary `<n>_solver_config.json` files are the units run_multi drives.
+    """
+    import re
+    pat = re.compile(r'(\d+)_solver_config\.json$')
+    found = []
+    for f in os.listdir(cases_dir):
+        m = pat.fullmatch(f)
+        if m:
+            found.append((int(m.group(1)), f))
+    found.sort()
+    return [f for _, f in found]
+
+
+def _reconcile_metrics_with_manifest(work_dir):
+    """Drop case_metrics rows for cases NOT recorded complete in the manifest.
+
+    The manifest is the source of truth for completion (it is written last, after the
+    metrics row). A case interrupted between "metrics appended" and "marked complete"
+    leaves an orphan row; pruning it before resume prevents a duplicate row when that
+    case re-runs. No-op when there is no metrics file (full-log mode).
+    """
+    import pandas as _pd
+    from post_tool.post_montecarlo import CASE_METRICS_FILE
+
+    metrics_path = os.path.join(work_dir, CASE_METRICS_FILE)
+    if not os.path.exists(metrics_path):
+        return
+    done_cases = {int(n.split('_', 1)[0]) for n in RunManifest(os.path.abspath(work_dir)).completed()}
+    df = _pd.read_csv(metrics_path)
+    kept = df[df['case'].isin(done_cases)]
+    if len(kept) != len(df):
+        kept.to_csv(metrics_path, index=False)
+
+
+def resume_montecarlo(montecarlo_config_json_file_name, work_dir, max_thread_run=False,
+                      stop_event=None):
+    """Resume an interrupted Monte Carlo run in an existing work_dir.
+
+    The per-case inputs were materialized (and the MC samples realized) by the original
+    run, so they are reused as-is — the statistical population is unchanged. Only cases
+    not yet recorded complete in the manifest are re-run. The montecarlo config is read
+    solely for the "Output All Case Logs" mode flag; the error parameters are NOT
+    re-sampled.
+    """
+    with open(montecarlo_config_json_file_name) as f:
+        montecarlo_config = json.load(f)
+
+    cases_dir = os.path.abspath(work_dir + '/cases')
+    if not os.path.isdir(cases_dir):
+        raise FileNotFoundError(f'cases directory not found under work_dir: {cases_dir}')
+
+    case_solver_config_file_name_list = _enumerate_case_solver_configs(cases_dir)
+    if not case_solver_config_file_name_list:
+        raise FileNotFoundError(f'no per-case solver configs found in {cases_dir}')
+
+    _reconcile_metrics_with_manifest(os.path.abspath(work_dir))
+
+    print(f'Resuming Monte Carlo run in {work_dir} '
+          f'({len(case_solver_config_file_name_list)} cases total)')
+    _execute_montecarlo_cases(work_dir, case_solver_config_file_name_list,
+                              montecarlo_config, max_thread_run, stop_event=stop_event)
