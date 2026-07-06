@@ -1300,51 +1300,75 @@ def calculate_page(request: Request):
                 result_area.clear()
                 resume_calculation()
 
-            _st = {'status': current_job().status}
+            # Track the last status THIS page instance saw, so one-time side effects
+            # (toast notifications) fire only on a real transition. Button visibility and
+            # labels are reconciled every tick instead — that way re-entering the page while
+            # a job is already paused/running/completed restores the correct controls
+            # (e.g. the Resume button) even though this page witnessed no transition.
+            _st = {'status': current_job().status, 'results_for': None}
+
+            def _build_view_results(cid):
+                # Rebuild the "View Results" button only when the target calc changes, so it
+                # survives page re-entry (reconcile) without flickering every tick.
+                if _st['results_for'] == cid:
+                    return
+                _st['results_for'] = cid
+                result_area.clear()
+                with result_area:
+                    ui.button(
+                        'View Results',
+                        on_click=lambda c=cid: ui.navigate.to(f'/result/{c}'),
+                    ).props('color=positive icon=open_in_new').classes('w-full q-mb-xs')
 
             def _refresh_progress():
-                job    = current_job()
-                status = job.status
-                is_mc  = job.mode == 'montecarlo'
+                job     = current_job()
+                status  = job.status
+                is_mc   = job.mode == 'montecarlo'
+                changed = status != _st['status']
+                _st['status'] = status
+
                 if status in ('running', 'cancelling', 'pausing'):
                     note = ''
                     if status == 'cancelling':
                         note = ' (cancelling…)'
                     elif status == 'pausing':
                         note = ' (pausing — finishing in-flight cases…)'
+                    progress_area.set_visibility(True)
                     progress_label.set_text(f'Step {job.step}/4: {job.step_label}{note}')
                     progress_bar.set_value(job.progress)
                     # Pause only while genuinely running a montecarlo job.
                     _show_buttons(pause=(is_mc and status == 'running'), cancel=True)
-                elif status != _st['status']:
-                    _st['status'] = status
-                    if status == 'completed':
-                        _show_buttons(run=True)
-                        progress_label.set_text('Completed.')
-                        progress_bar.set_value(1.0)
-                        result_area.clear()
-                        _cid = job.calc_id
-                        with result_area:
-                            ui.notify('Calculation completed!', type='positive')
-                            ui.button(
-                                'View Results',
-                                on_click=lambda cid=_cid: ui.navigate.to(f'/result/{cid}'),
-                            ).props('color=positive icon=open_in_new').classes('w-full q-mb-xs')
-
-                    elif status == 'paused':
-                        # Resume continues the same work dir; Run starts a fresh calculation.
-                        _show_buttons(run=True, resume=True)
-                        progress_label.set_text('Paused — resume to finish the remaining cases.')
+                    _st['results_for'] = None
+                elif status == 'completed':
+                    _show_buttons(run=True)
+                    progress_area.set_visibility(True)
+                    progress_label.set_text('Completed.')
+                    progress_bar.set_value(1.0)
+                    _build_view_results(job.calc_id)
+                    if changed:
+                        ui.notify('Calculation completed!', type='positive')
+                elif status == 'paused':
+                    # Resume continues the same work dir; Run starts a fresh calculation.
+                    _show_buttons(run=True, resume=True)
+                    progress_area.set_visibility(True)
+                    progress_label.set_text('Paused — resume to finish the remaining cases.')
+                    _st['results_for'] = None
+                    if changed:
                         ui.notify('Calculation paused. Resume to continue.', type='info')
-
-                    elif status == 'failed':
-                        _show_buttons(run=True)
-                        progress_label.set_text(f'Failed: {job.error}')
+                elif status == 'failed':
+                    _show_buttons(run=True)
+                    progress_area.set_visibility(True)
+                    progress_label.set_text(f'Failed: {job.error}')
+                    _st['results_for'] = None
+                    if changed:
                         ui.notify(f'Calculation failed: {job.error}', type='negative')
-                    elif status == 'cancelled':
-                        _show_buttons(run=True)
-                        progress_label.set_text('Cancelled.')
+                elif status == 'cancelled':
+                    _show_buttons(run=True)
+                    progress_area.set_visibility(True)
+                    progress_label.set_text('Cancelled.')
+                    _st['results_for'] = None
 
+            _refresh_progress()  # reconcile to the current job state at once (no 0.5s flash)
             ui.timer(0.5, _refresh_progress)
 
     if open_new:
