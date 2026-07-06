@@ -203,7 +203,9 @@ def _build_rocket_form(data: dict, container):
                 'Constant X-C.G.', 'Constant X-C.G. from BodyTail [mm]',
                 'X-C.G.', 'Constant [mm]', 1800.0, '%.2f',
             )
-            with ui.grid(columns=2).classes('w-full').bind_visibility_from(en_xcg, 'value', backward=lambda v: not v):
+            # Lateral CG offset is an inert-value constant (ForRocket derives the
+            # full-vehicle time history internally) — editable in both X-C.G. modes.
+            with ui.grid(columns=2).classes('w-full'):
                 cg_off_y = ui.number('y-C.G. Offset [mm]', value=cg_off.get('y-C.G. Offset [mm]', 0.0), format='%.4f')
                 cg_off_z = ui.number('z-C.G. Offset [mm]', value=cg_off.get('z-C.G. Offset [mm]', 0.0), format='%.4f')
 
