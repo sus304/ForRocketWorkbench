@@ -1,9 +1,14 @@
 import datetime
+import json
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
+
+from path_define import runner_montecarlo_directory
+from runner_tool.run_manifest import RunManifest
 
 from web.db.database import get_session
 from web.db.models import Calculation, Project
@@ -40,6 +45,10 @@ class JobState:
     result_dir: str = ''
     work_dir: str = ''            # resumable work dir (relative to project) when paused
     use_max_thread: bool = False  # remembered so resume re-runs with the same threading
+    run_started_at: float = 0.0   # time.time() when this session's runner was launched
+    mc_total: int = 0             # montecarlo: total case count (0 = unknown)
+    mc_work_dir: str = ''         # montecarlo: absolute work dir when known (pause/resume)
+    mc_baseline_done: int = 0     # montecarlo: cases already complete when this session started
 
     @property
     def step_label(self) -> str:
@@ -48,6 +57,15 @@ class JobState:
     @property
     def progress(self) -> float:
         return self.step / 4.0
+
+
+@dataclass
+class McProgress:
+    """Live per-case progress of a montecarlo job (see montecarlo_progress)."""
+    done: int
+    total: int
+    session_elapsed: float  # seconds since this session's runner started
+    eta: float              # estimated seconds remaining; negative when unknown
 
 
 _job = JobState()
@@ -111,6 +129,73 @@ def _update_db_status(calc_id: int, status: str, result_dir: 'str | None' = None
             session.commit()
     finally:
         session.close()
+
+
+def _read_mc_case_count(project_dir: Path) -> int:
+    try:
+        with open(project_dir / 'config_montecarlo.json') as f:
+            return int(json.load(f).get('MonteCarlo Case Count') or 0)
+    except (OSError, TypeError, ValueError):
+        return 0
+
+
+def _count_completed_cases(work_dir: str) -> int:
+    """Completed-case count from the runner's manifest. Counting newline bytes ignores a
+    torn final line from a concurrent append."""
+    try:
+        with open(Path(work_dir) / RunManifest.FILENAME, 'rb') as f:
+            return f.read().count(b'\n')
+    except OSError:
+        return 0
+
+
+def _find_mc_work_dir(project_dir: Path, started_at: float) -> str:
+    """Locate the running montecarlo work dir: only one job runs at a time, so it is the
+    newest work_montecarlo* directory touched since this session's runner started (older
+    runs' dirs are no longer written to). Returns '' while the runner has not created it
+    yet. Rescanned every poll — cheap, and self-correcting against a transient mismatch."""
+    best, best_mtime = '', started_at - 1.0  # slack for coarse filesystem timestamps
+    for d in project_dir.glob(runner_montecarlo_directory + '*'):
+        try:
+            mtime = d.stat().st_mtime
+        except OSError:
+            continue
+        if d.is_dir() and mtime > best_mtime:
+            best, best_mtime = str(d), mtime
+    return best
+
+
+def montecarlo_progress() -> 'McProgress | None':
+    """Live per-case progress of the current montecarlo job, read from the completion
+    manifest (completed_cases.txt) the runner already maintains for pause/resume — the
+    solver pipeline itself is untouched. Returns None when no montecarlo job is in its
+    solver step or the work dir / case count are not known yet."""
+    with _lock:
+        if _job.mode != 'montecarlo' or _job.status not in ('running', 'pausing', 'paused'):
+            return None
+        if _job.step != 2:  # per-case progress only exists while the solver step runs
+            return None
+        status = _job.status
+        total = _job.mc_total
+        work_dir = _job.mc_work_dir
+        baseline = _job.mc_baseline_done
+        started_at = _job.run_started_at
+        project_name = _job.project_name
+
+    if total <= 0:
+        return None
+    if not work_dir:
+        work_dir = _find_mc_work_dir((projects_dir() / project_name).resolve(), started_at)
+        if not work_dir:
+            return None
+
+    done = _count_completed_cases(work_dir)
+    elapsed = time.time() - started_at
+    eta = -1.0
+    session_done = done - baseline
+    if status == 'running' and session_done > 0 and elapsed > 0 and done < total:
+        eta = (total - done) * (elapsed / session_done)
+    return McProgress(done=done, total=total, session_elapsed=elapsed, eta=eta)
 
 
 def _stop_flag_path(project_dir: Path) -> Path:
@@ -230,6 +315,9 @@ def start_calculation(project_name: str, mode: str, use_max_thread: bool) -> int
     finally:
         session.close()
 
+    project_dir = (projects_dir() / project_name).resolve()
+    mc_total = _read_mc_case_count(project_dir) if mode == 'montecarlo' else 0
+
     with _lock:
         _job.calc_id = calc_id
         _job.step = 0
@@ -240,6 +328,10 @@ def start_calculation(project_name: str, mode: str, use_max_thread: bool) -> int
         _job.result_dir = ''
         _job.work_dir = ''
         _job.use_max_thread = use_max_thread
+        _job.run_started_at = time.time()
+        _job.mc_total = mc_total
+        _job.mc_work_dir = ''  # discovered by montecarlo_progress once the runner creates it
+        _job.mc_baseline_done = 0
 
     global _current_thread
     t = threading.Thread(
@@ -287,6 +379,14 @@ def resume_calculation():
         _job.status = 'running'
         _job.step = 2
         _job.error = ''
+        _job.run_started_at = time.time()
+
+    # Baseline the manifest so the ETA rate counts only cases run in THIS session.
+    mc_work_dir = str(((projects_dir() / project_name) / work_dir).resolve())
+    baseline = _count_completed_cases(mc_work_dir)
+    with _lock:
+        _job.mc_work_dir = mc_work_dir
+        _job.mc_baseline_done = baseline
 
     _update_db_status(calc_id, 'running')
 
@@ -329,6 +429,7 @@ def _run_job(calc_id: int, project_name: str, mode: str, use_max_thread: bool,
             _job.work_dir = e.work_dir
             _job.result_dir = result_dir
             _job.status = 'paused'
+            _job.mc_work_dir = result_dir
 
     except _CalcCancelled:
         _update_db_done(calc_id, 'cancelled')

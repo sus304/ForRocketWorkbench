@@ -7,6 +7,7 @@ from nicegui import ui
 from web.pages.shared import build_header
 from web.services.calc_service import (
     current_job, start_calculation, cancel_calculation, pause_calculation, resume_calculation,
+    montecarlo_progress,
 )
 from web.services.project_service import (
     scan_projects, get_project_files, load_json, save_json, create_project,
@@ -630,6 +631,11 @@ _SENS_UNITS = ['%', 'deg', 's', 'm', 'kg', 'N', 'mm', '-']
 _SENS_METHODS = {'two_point': 'Two Point', 'linear_fit': 'Linear Fit (all points)'}
 # POI components are %-only when the rocket runs in Product-of-Inertia file mode.
 _SENS_POI_PARAMS = {'POI Ixy', 'POI Ixz', 'POI Iyz'}
+
+
+def _fmt_hms(seconds: float) -> str:
+    s = max(0, int(seconds))
+    return f'{s // 3600}:{s // 60 % 60:02d}:{s % 60:02d}'
 
 
 def _parse_num_list(text: str) -> list:
@@ -1333,9 +1339,21 @@ def calculate_page(request: Request):
                         note = ' (cancelling…)'
                     elif status == 'pausing':
                         note = ' (pausing — finishing in-flight cases…)'
+                    label = f'Step {job.step}/4: {job.step_label}{note}'
+                    bar   = job.progress
+                    mc = montecarlo_progress() if is_mc else None
+                    if mc:
+                        frac  = mc.done / mc.total
+                        label = (f'Step {job.step}/4: {job.step_label} '
+                                 f'{mc.done:,} / {mc.total:,} cases ({frac:.1%})'
+                                 f' · elapsed {_fmt_hms(mc.session_elapsed)}')
+                        if mc.eta >= 0:
+                            label += f' · remaining ~{_fmt_hms(mc.eta)}'
+                        label += note
+                        bar = 0.25 + 0.5 * frac  # case progress fills the solver step's segment
                     progress_area.set_visibility(True)
-                    progress_label.set_text(f'Step {job.step}/4: {job.step_label}{note}')
-                    progress_bar.set_value(job.progress)
+                    progress_label.set_text(label)
+                    progress_bar.set_value(bar)
                     # Pause only while genuinely running a montecarlo job.
                     _show_buttons(pause=(is_mc and status == 'running'), cancel=True)
                     _st['results_for'] = None
@@ -1351,7 +1369,12 @@ def calculate_page(request: Request):
                     # Resume continues the same work dir; Run starts a fresh calculation.
                     _show_buttons(run=True, resume=True)
                     progress_area.set_visibility(True)
-                    progress_label.set_text('Paused — resume to finish the remaining cases.')
+                    mc = montecarlo_progress()
+                    if mc:
+                        progress_label.set_text(f'Paused — {mc.done:,} / {mc.total:,} cases complete. '
+                                                'Resume to finish the rest.')
+                    else:
+                        progress_label.set_text('Paused — resume to finish the remaining cases.')
                     _st['results_for'] = None
                     if changed:
                         ui.notify('Calculation paused. Resume to continue.', type='info')
