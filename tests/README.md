@@ -22,6 +22,8 @@ tests/
 ├── test_iip.py               # IIP 後処理
 ├── test_import.py            # 履歴DBへの取り込み
 ├── test_dashboard.py         # ダッシュボード表示ロジック
+├── test_mc_progress.py       # montecarlo ライブ進捗ヘルパ（要Python 3.10+）
+├── test_form_spec.py         # WebUIフォーム ⇔ ソルバ入力仕様の整合ガード（要Python 3.10+）
 └── golden/                   # 回帰テスト用ゴールデンファイル（JSON）
     └── example.json
 ```
