@@ -1,6 +1,7 @@
 import os
 import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import psutil
 from tqdm import tqdm
 
 from runner_tool.runner_single import run_single
@@ -29,7 +30,11 @@ def run_multi(cases_dir, solver_config_file_list, max_thread_run=False, on_case_
     '''
     cases_dir: 絶対パス。各ケースのJSONファイルが置かれたディレクトリ。
     solver_config_file_list: cases_dir からの相対ファイル名リスト。
-    max_thread_run: True の場合 cpu_count スレッド、False の場合 cpu_count-1 スレッド使用。
+    max_thread_run: False（既定）の場合は物理コア数スレッド、True の場合は論理コア数
+        （SMT込みの全スレッド）を使用。ForRocket ソルバはメモリ帯域バウンドで、1物理コアに
+        1ソルバプロセスを割り当てた付近でスループットが最大になり、SMT で物理コアを超えて
+        oversubscribe すると共有メモリポートの奪い合いで逆に低下する（2026-07-15 実測：物理
+        コア数が論理コア数比で約15-20%高速）。このため既定は物理コア数とする。
     on_case_complete: 省略可。callable(cases_dir, solver_config_file_name)。各ケースの
         ソルバ完了直後にワーカスレッド内で呼ばれる。モンテカルロの統計のみ出力モードで、
         ケースごとに統計を抽出してフライトログを即削除する用途。ワーカ間で並列に呼ばれるため
@@ -56,10 +61,17 @@ def run_multi(cases_dir, solver_config_file_list, max_thread_run=False, on_case_
                 print('All cases already complete; nothing to run.')
                 return
 
-    cpu = os.cpu_count() or 1
-    workers = cpu if max_thread_run else max(1, cpu - 1)
+    logical = os.cpu_count() or 1
+    if max_thread_run:
+        workers = logical
+    else:
+        # Memory-bandwidth-bound solver: peak throughput at ~1 process per physical core.
+        # psutil.cpu_count(logical=False) can return None on exotic platforms; fall back to
+        # the previous logical-1 heuristic there.
+        physical = psutil.cpu_count(logical=False)
+        workers = max(1, physical if physical else logical - 1)
 
-    print(f'CPU count: {cpu}, Using workers: {workers}')
+    print(f'CPU count (logical): {logical}, Using workers: {workers}')
     print(f'Total: {len(solver_config_file_list)} cases')
 
     args = [(cases_dir, f, on_case_complete, manifest, stop_event) for f in solver_config_file_list]

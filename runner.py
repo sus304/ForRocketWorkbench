@@ -64,7 +64,7 @@ def get_args():
     argparser.add_argument('-m', '--montecarlo-config-json', help="Montecarlo config json file name", type=str)
     argparser.add_argument('-e', '--sensitivity-config-json', help="Sensitivity analysis config json file name", type=str)
 
-    argparser.add_argument('-X', '--use-max-thread', action='store_true', help='Using max cpu thread in area and montecarlo calculate')
+    argparser.add_argument('-X', '--use-max-thread', action='store_true', help='Use all logical (SMT) threads instead of the default (physical core count) for area/montecarlo/sensitivity')
 
     argparser.add_argument('-r', '--resume-work-dir', help="Resume an interrupted montecarlo run in this existing work_montecarlo directory", type=str)
 
