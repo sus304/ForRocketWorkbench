@@ -58,8 +58,6 @@ from runner_tool.json_api import get_poi_file_iyz, set_poi_file_iyz
 from runner_tool.runner_multi import run_multi
 from runner_tool.run_manifest import RunManifest
 
-from wind_tool.generate_montecarlo_wind import generate_montecarlo_2sigma_winds
-
 from path_define import runner_montecarlo_directory, make_unique_work_dir
 
 
