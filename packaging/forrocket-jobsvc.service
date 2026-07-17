@@ -1,0 +1,35 @@
+# ForRocket Workbench compute job service (systemd unit template).
+#
+# Install on the Ubuntu Server VM (see docs/workstation_setup.md §6). Replace the <...>
+# placeholders. Secrets (WB_API_TOKEN, WB_NOTIFY_URL) go in the EnvironmentFile, NOT here,
+# and that file must be chmod 600 and never committed.
+#
+#   sudo cp packaging/forrocket-jobsvc.service /etc/systemd/system/
+#   sudoedit /etc/forrocket-jobsvc.env      # WB_API_TOKEN=..., optional WB_NOTIFY_URL=...
+#   sudo systemctl daemon-reload && sudo systemctl enable --now forrocket-jobsvc
+
+[Unit]
+Description=ForRocket Workbench compute job service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<user>
+WorkingDirectory=/home/<user>/ForRocketWorkbench
+EnvironmentFile=/etc/forrocket-jobsvc.env
+# Bind to the tailscale interface for remote (③) use, or 127.0.0.1 for local only.
+# validate_bind_host() refuses 0.0.0.0 / LAN addresses.
+ExecStart=/home/<user>/ForRocketWorkbench/.venv/bin/python -m service.serve \
+    --host <tailscale0-ip-or-127.0.0.1> --port 8760 \
+    --data-root /home/<user>/ForRocketWorkbench/service_data
+# The worker runs jobs one at a time and resumes an interrupted MC on start, so a restart
+# after a crash/reboot picks the run back up (design §4.2).
+Restart=always
+RestartSec=5
+# Avoid a tight crash-loop masking a real fault (review 🟡K): back off after repeated fails.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

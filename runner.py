@@ -68,6 +68,8 @@ def get_args():
 
     argparser.add_argument('-r', '--resume-work-dir', help="Resume an interrupted montecarlo run in this existing work_montecarlo directory", type=str)
 
+    argparser.add_argument('-w', '--work-dir', help="Pre-created work directory to use for a fresh run (the compute service creates it so it knows the run's directory at start-up)", type=str)
+
     argparser.add_argument('--stop-flag-file', help="Path to a sentinel file; when it appears, the montecarlo run pauses gracefully (cross-platform pause for the web service)", type=str)
 
     argparser.add_argument('-v', '--version', action='version', version='%(prog)s '+ver_runner_tool)
@@ -94,17 +96,17 @@ if __name__ == '__main__':
             print('== Impact Point Montecarlo Simulation Mode ==')
             print(os.path.basename(args.solver_config_json), os.path.basename(args.montecarlo_config_json))
             run_montecarlo(os.path.basename(args.solver_config_json), os.path.basename(args.montecarlo_config_json),
-                           args.use_max_thread, stop_event=stop_event)
+                           args.use_max_thread, stop_event=stop_event, work_dir=args.work_dir)
     elif args.area_config_json:
         print('== Impact Point Area Calcuration Mode ==')
-        run_area(os.path.basename(args.solver_config_json), os.path.basename(args.area_config_json), args.use_max_thread)
+        run_area(os.path.basename(args.solver_config_json), os.path.basename(args.area_config_json), args.use_max_thread, work_dir=args.work_dir)
     elif args.sensitivity_config_json:
         print('== Sensitivity Analysis Mode ==')
         print(os.path.basename(args.solver_config_json), os.path.basename(args.sensitivity_config_json))
-        work_dir = run_sensitivity(os.path.basename(args.solver_config_json), os.path.basename(args.sensitivity_config_json), args.use_max_thread)
+        work_dir = run_sensitivity(os.path.basename(args.solver_config_json), os.path.basename(args.sensitivity_config_json), args.use_max_thread, work_dir=args.work_dir)
         post_sensitivity(work_dir)
     else:
         print('== Trajectory Calculation Mode ==')
-        run_trajectory(os.path.basename(args.solver_config_json))
+        run_trajectory(os.path.basename(args.solver_config_json), work_dir=args.work_dir)
 
 

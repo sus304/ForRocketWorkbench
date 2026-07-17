@@ -70,8 +70,10 @@ def _get_nominal(pname, base_cfg, rocket_param, engine_param, unit):
         f'Available parameters: {_AVAILABLE_PARAMS}')
 
 
-def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_name, max_thread_run=False):
-    work_dir = make_unique_work_dir(runner_sensitivity_directory)
+def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_name, max_thread_run=False, work_dir=None):
+    # work_dir may be pre-created by the compute service (see run_trajectory); default self-creates.
+    if work_dir is None:
+        work_dir = make_unique_work_dir(runner_sensitivity_directory)
 
     with open(solver_config_json_file_name) as f:
         solver_config = json.load(f)

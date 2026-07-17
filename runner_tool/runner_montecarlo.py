@@ -157,8 +157,11 @@ class MontecarloCaseConfig:
 
 
 def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_name, max_thread_run=False,
-                   stop_event=None):
-    work_dir = make_unique_work_dir(runner_montecarlo_directory)
+                   stop_event=None, work_dir=None):
+    # work_dir may be pre-created by the compute service so it knows (and persists) the run's
+    # directory at start-up, the anchor for automatic resume; default None self-creates.
+    if work_dir is None:
+        work_dir = make_unique_work_dir(runner_montecarlo_directory)
 
     with open(solver_config_json_file_name) as f:
         solver_config = json.load(f)

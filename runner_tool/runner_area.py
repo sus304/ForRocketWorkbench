@@ -19,8 +19,10 @@ class AreaCaseConfig:
         self.solver_config_file_name = solver_config_file_name
 
 
-def run_area(solver_config_json_file_name, area_config_json_file_name, max_thread_run=False):
-    work_dir = make_unique_work_dir(runner_area_directory)
+def run_area(solver_config_json_file_name, area_config_json_file_name, max_thread_run=False, work_dir=None):
+    # work_dir may be pre-created by the compute service (see run_trajectory); default self-creates.
+    if work_dir is None:
+        work_dir = make_unique_work_dir(runner_area_directory)
 
     with open(area_config_json_file_name) as f:
         area_config = json.load(f)
