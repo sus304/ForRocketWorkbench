@@ -67,16 +67,16 @@ def test_fsync_case_outputs_syncs_only_that_case(tmp_path, monkeypatch):
     other = cases / '6_SAMPLE_stage1_flight_log.csv'
     other.write_text('t,x\n0,0\n')
 
-    synced, synced_dirs = [], []
+    synced = []
     monkeypatch.setattr(runner_multi, '_fsync_file', lambda p: synced.append(os.path.basename(p)))
-    monkeypatch.setattr(runner_multi, '_fsync_dir', lambda p: synced_dirs.append(p))
 
     runner_multi._fsync_case_outputs(str(cases), '5_solver_config.json')
 
     assert '5_SAMPLE_stage1_flight_log.csv' in synced
     assert '5_SAMPLE_ballistic_stage1_flight_log.csv' in synced
     assert '6_SAMPLE_stage1_flight_log.csv' not in synced  # only case 5
-    assert str(cases) in synced_dirs
+    # the shared cases/ dir is intentionally NOT fsync'd per case (throughput); a lost file
+    # is re-run on resume by the output validator instead.
 
 
 def test_worker_fsyncs_before_manifest_mark(tmp_path, monkeypatch):

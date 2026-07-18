@@ -20,33 +20,24 @@ def _fsync_file(path):
         pass
 
 
-def _fsync_dir(path):
-    """fsync a directory so a contained file's existence/rename is durable (best effort)."""
-    try:
-        fd = os.open(path, os.O_RDONLY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-    except OSError:
-        pass
-
-
 def _case_flight_logs(cases_dir, solver_config_file_name):
     case_num = os.path.basename(solver_config_file_name).split('_', 1)[0]
     return glob.glob(os.path.join(cases_dir, f'{case_num}_*_flight_log.csv'))
 
 
 def _fsync_case_outputs(cases_dir, solver_config_file_name):
-    """Durably flush a case's flight-log outputs (and their directory) to disk.
+    """Durably flush a case's flight-log CSV data to disk just before the manifest records the
+    case complete. Without this a case's CSV write can sit in the page cache while the fsync'd
+    manifest entry survives a power loss, leaving a "completed" case with an empty CSV that post
+    then chokes on (found by the reboot-resume test).
 
-    Called just before the manifest records the case complete. Without this, a case's CSV
-    write can sit in the page cache while the fsync'd manifest entry survives a power loss,
-    leaving a "completed" case with an empty CSV that post then chokes on (found by the
-    reboot-resume test)."""
+    The containing directory is intentionally NOT fsync'd per case: doing so serialised all
+    worker threads on the shared cases/ dir and collapsed throughput ~50x. A case whose CSV
+    file is lost entirely (directory entry not yet durable) is instead re-run on resume by the
+    output validator (_case_output_valid), so per-case dir fsync is unnecessary for correctness.
+    """
     for p in _case_flight_logs(cases_dir, solver_config_file_name):
         _fsync_file(p)
-    _fsync_dir(cases_dir)
 
 
 def _case_output_valid(cases_dir, solver_config_file_name):
