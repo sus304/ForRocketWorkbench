@@ -1,7 +1,9 @@
+import os
 import subprocess
 
 from nicegui import app, ui
 
+from service.serve import validate_bind_host
 from web.db.database import init_db
 from web.services import calc_service
 import web.pages.dashboard  # noqa: F401 — registers @ui.page('/')
@@ -37,6 +39,16 @@ def _terminate_child_processes():
         proc.kill()
 
 
+def _ui_host() -> str:
+    """Host for the NiceGUI frontend, restricted to loopback or the tailnet (design §13-3).
+
+    NiceGUI defaults to 0.0.0.0, which exposed the GUI on the university LAN. Default to loopback
+    (use case ②); set WB_UI_HOST to the tailscale0 address to serve the tailnet (use case ③).
+    Anything else (0.0.0.0, a LAN address) is refused rather than silently exposed — same policy
+    as the compute service (service.serve.validate_bind_host)."""
+    return validate_bind_host(os.environ.get("WB_UI_HOST", "127.0.0.1"))
+
+
 def _start_compute_service():
     """Spawn+supervise the local compute service for the new /jobs UI (use case ②).
 
@@ -58,6 +70,7 @@ if __name__ in {'__main__', '__mp_main__'}:
         print(f'Port 8080 is in use, using port {port} instead.')
     ui.run(
         title='ForRocket Workbench',
+        host=_ui_host(),
         port=port,
         reload=False,
         dark=True,
