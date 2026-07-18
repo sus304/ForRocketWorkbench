@@ -93,7 +93,12 @@ class CaseMetricsWriter:
 
 def _process_one_case(log_file, kml_suffix=''):
     case_number = int(log_file.split('_', 1)[0])
-    df = pd.read_csv(log_file, usecols=_MC_COLS)
+    try:
+        df = pd.read_csv(log_file, usecols=_MC_COLS)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError):
+        # Empty/corrupt case CSV (e.g. torn by a power loss). Skip it rather than fail the
+        # whole post; resume normally re-runs such a case, so this is a safety net.
+        return None
     result = post_summary_for_montecarlo(df)
     return (case_number,) + result
 
@@ -129,10 +134,17 @@ def _write_case_iip_logs(log_file_list, iip=None, iip_min_apogee=IIP_MIN_APOGEE_
 def _collect_case_results(log_file_list, kml_suffix=''):
     """Process flight log files in parallel; return collected per-case metrics."""
     results = []
+    skipped = 0
     with ThreadPoolExecutor() as executor:
         futures = {executor.submit(_process_one_case, f, kml_suffix): f for f in log_file_list}
         for future in tqdm(as_completed(futures), total=len(log_file_list)):
-            results.append(future.result())
+            r = future.result()
+            if r is None:  # empty/corrupt case CSV was skipped
+                skipped += 1
+                continue
+            results.append(r)
+    if skipped:
+        print(f'Warning: skipped {skipped} empty/unreadable case log(s)')
     results.sort(key=lambda x: x[0])
 
     case_numbers              = [r[0]  for r in results]

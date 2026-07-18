@@ -1,10 +1,78 @@
 import os
+import glob
 import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import psutil
 from tqdm import tqdm
 
 from runner_tool.runner_single import run_single
+
+
+def _fsync_file(path):
+    """fsync a single file's data to disk (best effort)."""
+    try:
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
+def _fsync_dir(path):
+    """fsync a directory so a contained file's existence/rename is durable (best effort)."""
+    try:
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass
+
+
+def _case_flight_logs(cases_dir, solver_config_file_name):
+    case_num = os.path.basename(solver_config_file_name).split('_', 1)[0]
+    return glob.glob(os.path.join(cases_dir, f'{case_num}_*_flight_log.csv'))
+
+
+def _fsync_case_outputs(cases_dir, solver_config_file_name):
+    """Durably flush a case's flight-log outputs (and their directory) to disk.
+
+    Called just before the manifest records the case complete. Without this, a case's CSV
+    write can sit in the page cache while the fsync'd manifest entry survives a power loss,
+    leaving a "completed" case with an empty CSV that post then chokes on (found by the
+    reboot-resume test)."""
+    for p in _case_flight_logs(cases_dir, solver_config_file_name):
+        _fsync_file(p)
+    _fsync_dir(cases_dir)
+
+
+def _case_output_valid(cases_dir, solver_config_file_name):
+    """True iff the case has a non-empty flight-log CSV on disk. A case recorded complete
+    whose CSV is missing/empty (torn by a power loss) is treated as not done, so resume
+    re-runs it instead of leaving an empty CSV for post to trip on."""
+    for p in _case_flight_logs(cases_dir, solver_config_file_name):
+        try:
+            if os.path.getsize(p) > 0:
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def _resume_remaining(solver_config_file_list, done, output_validator=None):
+    """Cases still to run: those not recorded complete, plus those recorded complete whose
+    output is missing/empty (output_validator returns False). With no validator this is the
+    legacy 'skip everything in the manifest' behaviour."""
+    remaining = []
+    for f in solver_config_file_list:
+        if f not in done:
+            remaining.append(f)
+        elif output_validator is not None and not output_validator(f):
+            remaining.append(f)
+    return remaining
 
 
 def _worker(args):
@@ -19,14 +87,17 @@ def _worker(args):
     if on_case_complete is not None:
         on_case_complete(cases_dir, filename)
     # Record completion LAST, after the solver run and any per-case post step both
-    # succeeded, so an interrupted run never marks a case it didn't fully finish.
+    # succeeded, so an interrupted run never marks a case it didn't fully finish. fsync the
+    # case's outputs BEFORE the manifest mark so a power loss cannot leave a case recorded
+    # complete with a lost/empty CSV (durability ordering; reboot-resume regression).
     if manifest is not None:
+        _fsync_case_outputs(cases_dir, filename)
         manifest.mark(filename)
     return True
 
 
 def run_multi(cases_dir, solver_config_file_list, max_thread_run=False, on_case_complete=None,
-              manifest=None, stop_event=None):
+              manifest=None, stop_event=None, output_validator=None):
     '''
     cases_dir: 絶対パス。各ケースのJSONファイルが置かれたディレクトリ。
     solver_config_file_list: cases_dir からの相対ファイル名リスト。
@@ -49,10 +120,12 @@ def run_multi(cases_dir, solver_config_file_list, max_thread_run=False, on_case_
         return
 
     # Resume support: skip cases already recorded complete by a previous (interrupted) run.
+    # output_validator (keep-logs mode) additionally forces a re-run of any case recorded
+    # complete whose CSV is missing/empty (torn by a power loss), so post never sees it.
     if manifest is not None:
         done = manifest.completed()
         if done:
-            remaining = [f for f in solver_config_file_list if f not in done]
+            remaining = _resume_remaining(solver_config_file_list, done, output_validator)
             skipped = len(solver_config_file_list) - len(remaining)
             print(f'Resuming: {skipped} of {len(solver_config_file_list)} cases already complete, '
                   f'{len(remaining)} remaining')
