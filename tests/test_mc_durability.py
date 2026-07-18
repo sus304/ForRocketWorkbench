@@ -6,10 +6,13 @@ page-cached CSV data was lost while the manifest entry survived. On resume those
 skipped (in the manifest), the empty CSVs remained, and post_montecarlo crashed reading them
 (pandas EmptyDataError), failing the whole job.
 
-These cover the three fixes:
-- fsync the case outputs (+ dir) before the manifest records the case complete (root cause);
-- on resume, re-run cases recorded complete whose output is missing/empty (self-heal);
+Fixing this with a per-case CSV fsync-before-mark was correct but unusable on the target VM
+(Hyper-V VHDX): a per-case fsync cost hundreds of ms and collapsed MC throughput ~50x. So the
+fix instead has no per-case runtime cost:
+- on resume, re-run any case recorded complete whose output is missing/empty (self-heal);
 - post tolerates an empty/corrupt case CSV instead of failing the whole run (safety net).
+The residual risk (a case whose CSV was truncated but non-empty at the instant of power loss)
+is accepted: rare, and a minor per-case statistical perturbation rather than a crash.
 """
 import os
 
@@ -55,48 +58,24 @@ def test_case_output_valid_detects_empty_and_missing(tmp_path):
     assert runner_multi._case_output_valid(str(cases), '2_solver_config.json') is False
 
 
-# --- durability: fsync case outputs before the manifest mark ---------------------
+# --- worker stays on the fast path (no per-case fsync) ---------------------------
 
-def test_fsync_case_outputs_syncs_only_that_case(tmp_path, monkeypatch):
+def test_worker_marks_without_per_case_fsync(tmp_path, monkeypatch):
+    """The per-case path must not fsync (it was ~50x too slow on the target VM); it just runs
+    the case and records completion in the manifest."""
     cases = tmp_path / 'cases'
     cases.mkdir()
-    good = cases / '5_SAMPLE_stage1_flight_log.csv'
-    good.write_text('t,x\n0,0\n')
-    ballistic = cases / '5_SAMPLE_ballistic_stage1_flight_log.csv'
-    ballistic.write_text('t,x\n0,0\n')
-    other = cases / '6_SAMPLE_stage1_flight_log.csv'
-    other.write_text('t,x\n0,0\n')
-
-    synced = []
-    monkeypatch.setattr(runner_multi, '_fsync_file', lambda p: synced.append(os.path.basename(p)))
-
-    runner_multi._fsync_case_outputs(str(cases), '5_solver_config.json')
-
-    assert '5_SAMPLE_stage1_flight_log.csv' in synced
-    assert '5_SAMPLE_ballistic_stage1_flight_log.csv' in synced
-    assert '6_SAMPLE_stage1_flight_log.csv' not in synced  # only case 5
-    # the shared cases/ dir is intentionally NOT fsync'd per case (throughput); a lost file
-    # is re-run on resume by the output validator instead.
-
-
-def test_worker_fsyncs_before_manifest_mark(tmp_path, monkeypatch):
-    """The case output must be durable BEFORE the manifest records completion, else a crash
-    can leave a 'completed' case with a lost CSV."""
-    cases = tmp_path / 'cases'
-    cases.mkdir()
-    (cases / '3_SAMPLE_stage1_flight_log.csv').write_text('t,x\n0,0\n')
-
-    order = []
     monkeypatch.setattr(runner_multi, 'run_single', lambda f: None)  # no solver/binary
-    monkeypatch.setattr(runner_multi, '_fsync_case_outputs',
-                        lambda cd, f: order.append('fsync'))
+    monkeypatch.setattr(os, 'fsync', lambda fd: (_ for _ in ()).throw(AssertionError('no fsync')))
+
+    marked = []
 
     class _Manifest:
         def mark(self, name):
-            order.append('mark')
+            marked.append(name)
 
     runner_multi._worker((str(cases), '3_solver_config.json', None, _Manifest(), None))
-    assert order == ['fsync', 'mark']  # durability barrier precedes the completion record
+    assert marked == ['3_solver_config.json']  # completion recorded, and no fsync happened
 
 
 # --- post tolerance: an empty case CSV must not fail the whole run ---------------
