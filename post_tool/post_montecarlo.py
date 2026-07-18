@@ -4,7 +4,7 @@ import threading
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 
 from post_tool.post_summary import post_summary_for_montecarlo, post_3sigma_summary
 from post_tool.post_ellipse import get_ellipse_points
@@ -91,88 +91,100 @@ class CaseMetricsWriter:
             df.to_csv(self.path, mode='a', header=write_header, index=False)
 
 
-def _process_one_case(log_file, kml_suffix=''):
-    case_number = int(log_file.split('_', 1)[0])
+# Single per-case pass reads each flight log ONCE with the union of the metric and IIP
+# columns. The previous pipeline read every log twice (metrics pass + IIP pass) through
+# ThreadPoolExecutor, whose GIL contention made post ~4x slower than even a serial loop
+# (VM measurement 2026-07-19: 187s for 2000 cases / 7.5GB vs ~49s serial; per-case cost is
+# ~70% CSV parsing). One read + ProcessPoolExecutor puts the parse on all cores.
+_NEEDED_COLS = frozenset(_MC_COLS) | frozenset(IIP_INPUT_COLUMNS)
+
+
+def _process_case_full(args):
+    """Process one flight log end-to-end: read once, extract metrics, and (gated) write the
+    IIP time-history CSV next to it. Top-level and picklable for ProcessPoolExecutor
+    (Windows spawn re-imports the module, so this must not live in a closure).
+
+    args: (log_path, iip, iip_min_apogee); log_path must be absolute so the worker does not
+    depend on the parent's cwd. Returns a dict; status 'empty' flags a torn/empty case CSV
+    (e.g. power loss), which is skipped rather than failing the whole post (resume re-runs
+    such a case, so this is a safety net)."""
+    log_path, iip, iip_min_apogee = args
+    name = os.path.basename(log_path)
+    out = {'file': name, 'case': int(name.split('_', 1)[0]),
+           'ballistic': '_ballistic_' in name}
     try:
-        df = pd.read_csv(log_file, usecols=_MC_COLS)
+        df = pd.read_csv(log_path, usecols=lambda c: c in _NEEDED_COLS)
     except (pd.errors.EmptyDataError, pd.errors.ParserError):
-        # Empty/corrupt case CSV (e.g. torn by a power loss). Skip it rather than fail the
-        # whole post; resume normally re-runs such a case, so this is a safety net.
-        return None
-    result = post_summary_for_montecarlo(df)
-    return (case_number,) + result
+        out['status'] = 'empty'
+        return out
+    out['status'] = 'ok'
+    out['metrics'] = post_summary_for_montecarlo(df)
+    # IIP: ECI 列を持たない（minimum_dump 等の）ログ、頂点高度ゲート未満はスキップ。
+    if not has_iip_input(df.columns):
+        out['iip'] = 'no_eci'
+    elif not should_run_iip(df, iip, iip_min_apogee):
+        out['iip'] = 'small'
+    else:
+        write_iip_log(df, log_path.rsplit('_flight_log.csv', 1)[0])
+        out['iip'] = 'written'
+    return out
 
 
-def _write_case_iip_logs(log_file_list, iip=None, iip_min_apogee=IIP_MIN_APOGEE_M):
-    """ログ非削除モード専用: 各ケースの flight_log から IIP 時間履歴 CSV
-    (`<case>_iip_log.csv`) を flight_log の隣に書き出す。
-
-    iip=None は頂点高度ゲート（小型ロケットはケース毎に自動スキップ）。
-    ECI 列を持たない（minimum_dump 等の）ログはスキップする。
-    戻り値: (written, skipped_no_eci, skipped_small)。"""
-    def _one(log_file):
-        try:
-            df = pd.read_csv(log_file, usecols=lambda c: c in IIP_INPUT_COLUMNS)
-        except (pd.errors.EmptyDataError, pd.errors.ParserError):
-            return 'empty'  # torn/empty case CSV; skip rather than fail the whole post
-        if not has_iip_input(df.columns):
-            return 'no_eci'
-        if not should_run_iip(df, iip, iip_min_apogee):
-            return 'small'
-        write_iip_log(df, log_file.rsplit('_flight_log.csv', 1)[0])
-        return 'written'
-
-    with ThreadPoolExecutor() as executor:
-        results = list(tqdm(executor.map(_one, log_file_list), total=len(log_file_list)))
-    written = sum(1 for r in results if r == 'written')
-    skipped_no_eci = sum(1 for r in results if r == 'no_eci')
-    skipped_small = sum(1 for r in results if r == 'small')
-    skipped_empty = sum(1 for r in results if r == 'empty')
-    if skipped_no_eci:
-        print(f'IIP: {skipped_no_eci}/{len(results)} 件は ECI 列が無くスキップ')
-    if skipped_small:
-        print(f'IIP: {skipped_small}/{len(results)} 件は頂点高度がしきい値未満でスキップ')
-    if skipped_empty:
-        print(f'IIP: {skipped_empty}/{len(results)} 件は空/破損ログでスキップ')
-    return written, skipped_no_eci, skipped_small
+def _post_worker_count(max_thread_run=False):
+    """Physical cores by default (like runner_multi: parse is memory-heavy and SMT
+    oversubscription does not pay); logical with max_thread_run."""
+    try:
+        import psutil
+        n = psutil.cpu_count(logical=max_thread_run)
+    except Exception:  # noqa: BLE001 — psutil is a dependency, but never fail post over it
+        n = None
+    return n or os.cpu_count() or 1
 
 
-def _collect_case_results(log_file_list, kml_suffix=''):
-    """Process flight log files in parallel; return collected per-case metrics."""
-    results = []
-    skipped = 0
-    with ThreadPoolExecutor() as executor:
-        futures = {executor.submit(_process_one_case, f, kml_suffix): f for f in log_file_list}
-        for future in tqdm(as_completed(futures), total=len(log_file_list)):
-            r = future.result()
-            if r is None:  # empty/corrupt case CSV was skipped
-                skipped += 1
-                continue
-            results.append(r)
-    if skipped:
-        print(f'Warning: skipped {skipped} empty/unreadable case log(s)')
-    results.sort(key=lambda x: x[0])
+# Below this many logs a serial loop beats paying the pool's process start-up + import cost
+# (also keeps the many small-N tests fast). Real MC runs are far above it.
+_SERIAL_THRESHOLD = 16
 
-    case_numbers              = [r[0]  for r in results]
-    maxQ_list                 = [r[1]  for r in results]
-    max_mach_list             = [r[2]  for r in results]
-    time_apogee_list          = [r[3]  for r in results]
-    altitude_list             = [r[4]  for r in results]
-    vel_apogee_list           = [r[5]  for r in results]
-    impact_points             = [r[6]  for r in results]
-    downrange_list            = [r[7]  for r in results]
-    peak_total_aoa_list       = [r[8]  for r in results]
-    aoa_launch_clear_list     = [r[9]  for r in results]
-    peak_spin_rate_list       = [r[10] for r in results]
-    spin_rate_burnout_list    = [r[11] for r in results]
-    min_sg_list               = [r[12] for r in results]
-    min_resonance_ratio_list  = [r[13] for r in results]
-    max_trim_aoa_list         = [r[14] for r in results]
-    max_lateral_aero_load_list = [r[15] for r in results]
-    return (case_numbers, maxQ_list, max_mach_list, time_apogee_list, altitude_list,
-            vel_apogee_list, impact_points, downrange_list,
-            peak_total_aoa_list, aoa_launch_clear_list, peak_spin_rate_list, spin_rate_burnout_list,
-            min_sg_list, min_resonance_ratio_list, max_trim_aoa_list, max_lateral_aero_load_list)
+
+def _run_case_pipeline(log_file_list, iip=None, iip_min_apogee=IIP_MIN_APOGEE_M,
+                       max_thread_run=False):
+    """Run _process_case_full over every log (single read per case), in parallel across
+    processes for real workloads. Returns the list of per-case result dicts."""
+    jobs = [(os.path.abspath(f), iip, iip_min_apogee) for f in sorted(log_file_list)]
+    workers = _post_worker_count(max_thread_run)
+    if len(jobs) <= _SERIAL_THRESHOLD or workers == 1:
+        results = [_process_case_full(j) for j in jobs]
+    else:
+        chunk = max(1, len(jobs) // (workers * 8))
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            results = list(tqdm(executor.map(_process_case_full, jobs, chunksize=chunk),
+                                total=len(jobs)))
+
+    empty = sum(1 for r in results if r['status'] == 'empty')
+    if empty:
+        print(f'Warning: skipped {empty} empty/unreadable case log(s)')
+    counts = _iip_counts(results)
+    if counts['no_eci']:
+        print(f"IIP: {counts['no_eci']}/{len(results)} 件は ECI 列が無くスキップ")
+    if counts['small']:
+        print(f"IIP: {counts['small']}/{len(results)} 件は頂点高度がしきい値未満でスキップ")
+    return results
+
+
+def _iip_counts(results):
+    """Tally the per-case IIP outcomes from _run_case_pipeline results."""
+    return {key: sum(1 for r in results if r.get('iip') == key)
+            for key in ('written', 'no_eci', 'small')}
+
+
+def _metric_lists(results, ballistic):
+    """Rebuild the 16 per-case metric lists (sorted by case) for one scenario from the
+    pipeline results — the shape _save_impact_results() consumes."""
+    rows = sorted(((r['case'],) + r['metrics'] for r in results
+                   if r['status'] == 'ok' and r['ballistic'] == ballistic),
+                  key=lambda x: x[0])
+    cols = list(zip(*rows)) if rows else [[] for _ in range(16)]
+    return tuple(list(c) for c in cols)
 
 
 def _save_impact_results(case_numbers, maxQ, max_mach, time_apogee, altitude, vel_apogee,
@@ -279,36 +291,25 @@ def post_montecarlo(montecarlo_work_dir, montecarlo_calc_dir='cases/', max_threa
 
     with chdir(montecarlo_work_dir):
         with chdir(montecarlo_calc_dir):
-            log_file_list = glob.glob('*_flight_log.csv')
+            # 単一パス: 各 flight_log を1回だけ読み、メトリクス抽出と（ログ非削除モードの）
+            # per-case IIP 時間履歴 CSV 書き出しを同じ読みで済ませる。
+            log_file_list = [f for f in glob.glob('*_flight_log.csv') if '_stage1_' in f]
+            results = _run_case_pipeline(log_file_list, iip=iip, iip_min_apogee=iip_min_apogee,
+                                         max_thread_run=max_thread_run)
 
-            stage1_log_file_list = []
-            stage1_ballistic_log_file_list = []
-            for file in log_file_list:
-                if '_stage1_' in file:
-                    if '_ballistic_' in file:
-                        stage1_ballistic_log_file_list.append(file)
-                    else:
-                        stage1_log_file_list.append(file)
+        exist_decent = any(r['ballistic'] for r in results if r['status'] == 'ok')
 
-            exist_decent = len(stage1_ballistic_log_file_list) > 0
-
-            (case_numbers, maxQ, max_mach, time_apogee, altitude,
-             vel_apogee, impact_points, downrange,
-             peak_total_aoa, aoa_launch_clear, peak_spin_rate, spin_rate_burnout,
-             min_sg, min_resonance_ratio, max_trim_aoa, max_lateral_aero_load) = _collect_case_results(stage1_log_file_list)
-
-            if exist_decent:
-                (b_case_numbers, b_maxQ, b_max_mach, b_time_apogee, b_altitude,
-                 b_vel_apogee, b_impact_points, b_downrange,
-                 b_peak_total_aoa, b_aoa_launch_clear, b_peak_spin_rate, b_spin_rate_burnout,
-                 b_min_sg, b_min_resonance_ratio, b_max_trim_aoa, b_max_lateral_aero_load) = _collect_case_results(
-                    stage1_ballistic_log_file_list, kml_suffix='_ballistic')
-
-            # ログ非削除モードでのみ: 各ケースの IIP 時間履歴 CSV を cases/ 内に書き出す
-            _write_case_iip_logs(log_file_list, iip=iip, iip_min_apogee=iip_min_apogee)
+        (case_numbers, maxQ, max_mach, time_apogee, altitude,
+         vel_apogee, impact_points, downrange,
+         peak_total_aoa, aoa_launch_clear, peak_spin_rate, spin_rate_burnout,
+         min_sg, min_resonance_ratio, max_trim_aoa, max_lateral_aero_load) = _metric_lists(results, ballistic=False)
 
         # results are written in montecarlo_work_dir (one level above cases/)
         if exist_decent:
+            (b_case_numbers, b_maxQ, b_max_mach, b_time_apogee, b_altitude,
+             b_vel_apogee, b_impact_points, b_downrange,
+             b_peak_total_aoa, b_aoa_launch_clear, b_peak_spin_rate, b_spin_rate_burnout,
+             b_min_sg, b_min_resonance_ratio, b_max_trim_aoa, b_max_lateral_aero_load) = _metric_lists(results, ballistic=True)
             _save_impact_results(case_numbers, maxQ, max_mach, time_apogee, altitude,
                                  vel_apogee, downrange, impact_points, 'decent',
                                  peak_total_aoa, aoa_launch_clear, peak_spin_rate, spin_rate_burnout,

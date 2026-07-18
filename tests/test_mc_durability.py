@@ -135,17 +135,49 @@ def test_worker_marks_without_per_case_fsync(tmp_path, monkeypatch):
 
 # --- post tolerance: an empty case CSV must not fail the whole run ---------------
 
-def test_process_one_case_returns_none_on_empty(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / '7_SAMPLE_stage1_flight_log.csv').write_text('')  # empty
-    assert pm._process_one_case('7_SAMPLE_stage1_flight_log.csv') is None
+def test_process_case_full_flags_empty(tmp_path):
+    p = tmp_path / '7_SAMPLE_stage1_flight_log.csv'
+    p.write_text('')  # empty (torn)
+    out = pm._process_case_full((str(p), None, pm.IIP_MIN_APOGEE_M))
+    assert out['status'] == 'empty' and out['case'] == 7
 
 
-def test_collect_case_results_skips_empty(tmp_path, monkeypatch):
+def test_case_pipeline_skips_empty(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / '7_SAMPLE_stage1_flight_log.csv').write_text('')  # only an empty file
-    result = pm._collect_case_results(['7_SAMPLE_stage1_flight_log.csv'])
-    assert result[0] == []  # case_numbers empty, no crash
+    results = pm._run_case_pipeline(['7_SAMPLE_stage1_flight_log.csv'])
+    assert pm._metric_lists(results, ballistic=False)[0] == []  # case_numbers empty, no crash
+
+
+def _write_synth_log(path):
+    """Minimal flight log with every _MC_COLS column and a clear apogee at index 3."""
+    alt = [0.0, 100.0, 250.0, 400.0, 300.0, 120.0]
+    n = len(alt)
+    data = {c: [1.0] * n for c in pm._MC_COLS}
+    data['Time [s]'] = [float(i) for i in range(n)]
+    data['Altitude [m]'] = alt
+    data['Fz-gravity [N]'] = [0.0] + [-90.0] * (n - 1)
+    pd.DataFrame(data, columns=pm._MC_COLS).to_csv(path, index=False)
+
+
+def test_case_pipeline_process_pool_path(tmp_path, monkeypatch):
+    """Above _SERIAL_THRESHOLD the pipeline goes through ProcessPoolExecutor: the worker and
+    its args must survive pickling/spawn and results must cover every case. Guards the
+    parallel path the small-N tests never reach (the empty log must also survive it)."""
+    monkeypatch.chdir(tmp_path)
+    n = pm._SERIAL_THRESHOLD + 4
+    names = []
+    for i in range(n):
+        name = f'{i}_SAMPLE_stage1_flight_log.csv'
+        _write_synth_log(tmp_path / name)
+        names.append(name)
+    (tmp_path / f'{n}_SAMPLE_stage1_flight_log.csv').write_text('')  # torn straggler
+    names.append(f'{n}_SAMPLE_stage1_flight_log.csv')
+
+    results = pm._run_case_pipeline(names)
+    lists = pm._metric_lists(results, ballistic=False)
+    assert lists[0] == list(range(n))  # every good case present, sorted; empty one skipped
+    assert sum(1 for r in results if r['status'] == 'empty') == 1
 
 
 # --- ballistic input regeneration: torn per-case ballistic configs are rewritten ------

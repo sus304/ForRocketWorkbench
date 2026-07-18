@@ -127,7 +127,7 @@ def test_mc_per_case_iip_writer(tmp_path):
     import shutil
     import pandas as pd
     from path_define import chdir
-    from post_tool.post_montecarlo import _write_case_iip_logs
+    from post_tool.post_montecarlo import _run_case_pipeline, _iip_counts
 
     shutil.copy(str(EXAMPLE_LOG), str(tmp_path / "01_stage1_flight_log.csv"))
     df = pd.read_csv(str(EXAMPLE_LOG))
@@ -135,9 +135,10 @@ def test_mc_per_case_iip_writer(tmp_path):
         str(tmp_path / "02_stage1_flight_log.csv"), index=False)  # ECI 列なし（minimum_dump 模擬）
 
     with chdir(str(tmp_path)):
-        written, skipped_no_eci, skipped_small = _write_case_iip_logs(glob.glob("*_flight_log.csv"))
+        results = _run_case_pipeline(glob.glob("*_flight_log.csv"))
+    counts = _iip_counts(results)
 
-    assert written == 1 and skipped_no_eci == 1 and skipped_small == 0
+    assert counts == {'written': 1, 'no_eci': 1, 'small': 0}
     assert (tmp_path / "01_stage1_iip_log.csv").exists()       # 19km級 → ゲート通過
     assert not (tmp_path / "02_stage1_iip_log.csv").exists()   # ECI 無し → スキップ
 
@@ -148,10 +149,10 @@ def test_mc_per_case_iip_gate_skips_small(tmp_path):
     import glob
     import shutil
     from path_define import chdir
-    from post_tool.post_montecarlo import _write_case_iip_logs
+    from post_tool.post_montecarlo import _run_case_pipeline, _iip_counts
 
     shutil.copy(str(EXAMPLE_LOG), str(tmp_path / "01_stage1_flight_log.csv"))
     with chdir(str(tmp_path)):
-        written, _, skipped_small = _write_case_iip_logs(glob.glob("*_flight_log.csv"), iip=False)
-    assert written == 0 and skipped_small == 1
+        counts = _iip_counts(_run_case_pipeline(glob.glob("*_flight_log.csv"), iip=False))
+    assert counts == {'written': 0, 'no_eci': 0, 'small': 1}
     assert not (tmp_path / "01_stage1_iip_log.csv").exists()
