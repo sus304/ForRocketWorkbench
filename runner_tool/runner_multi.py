@@ -32,6 +32,40 @@ def _case_output_valid(cases_dir, solver_config_file_name):
     return True
 
 
+def _make_output_validator(cases_dir):
+    """Build a case output validator from a SINGLE scan of cases_dir.
+
+    Equivalent to calling _case_output_valid per case, but scans the directory once instead of
+    globbing it per case, so resume validation is O(files) rather than O(cases x files) — the
+    per-case glob stalled real 10k-case runs (tens of thousands of files scanned per case).
+
+    A case is valid iff it produced at least one *_flight_log.csv and none of them are
+    empty/unreadable (a power loss can tear one of a case's sibling logs to 0 bytes)."""
+    has_log = set()   # case number -> produced at least one flight log
+    torn = set()      # case number -> at least one empty/unreadable log
+    try:
+        with os.scandir(cases_dir) as it:
+            for entry in it:
+                name = entry.name
+                if not name.endswith('_flight_log.csv'):
+                    continue
+                case_num = name.split('_', 1)[0]
+                has_log.add(case_num)
+                try:
+                    if entry.stat().st_size == 0:
+                        torn.add(case_num)
+                except OSError:
+                    torn.add(case_num)
+    except OSError:
+        pass  # missing cases dir -> nothing valid -> every case re-runs
+
+    def _valid(solver_config_file_name):
+        case_num = os.path.basename(solver_config_file_name).split('_', 1)[0]
+        return case_num in has_log and case_num not in torn
+
+    return _valid
+
+
 def _resume_remaining(solver_config_file_list, done, output_validator=None):
     """Cases still to run: those not recorded complete, plus those recorded complete whose
     output is missing/empty (output_validator returns False). With no validator this is the

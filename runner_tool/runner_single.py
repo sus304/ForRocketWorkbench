@@ -1,6 +1,5 @@
 # 1条件計算ランナー
 
-import os
 import json
 import pandas as pd
 from scipy.interpolate import interp1d
@@ -52,12 +51,14 @@ def run_single(solver_config_json_file_name):
         stage_config_file_path_ballistic = generate_ballistic_config_json_file_path(get_stage_config_file_name(solver_config, 1))
         solver_config['Stage1 Config File List'] = stage_config_file_path_ballistic
 
-        if not os.path.exists(soe_file_path_ballistic):
-            with open(soe_file_path_ballistic, 'w') as f:
-                json.dump(soe, f, indent=4)
-        if not os.path.exists(stage_config_file_path_ballistic):
-            with open(stage_config_file_path_ballistic, 'w') as f:
-                json.dump(stage_config, f, indent=4)
+        # Always (re)write, never skip when the path exists: a power loss can leave these torn
+        # to 0 bytes, and a resume re-running the case must regenerate them or the ballistic
+        # solver phase runs against an empty config (descent statistics degrade silently). The
+        # content is derived deterministically from the case config, so rewriting is idempotent.
+        with open(soe_file_path_ballistic, 'w') as f:
+            json.dump(soe, f, indent=4)
+        with open(stage_config_file_path_ballistic, 'w') as f:
+            json.dump(stage_config, f, indent=4)
 
         # Model IDを無効版に変更
         solver_config['Model ID'] = solver_config.get('Model ID') + '_ballistic'

@@ -55,7 +55,7 @@ from runner_tool.json_api import get_poi_file_ixy, set_poi_file_ixy
 from runner_tool.json_api import get_poi_file_ixz, set_poi_file_ixz
 from runner_tool.json_api import get_poi_file_iyz, set_poi_file_iyz
 
-from runner_tool.runner_multi import run_multi, _case_output_valid
+from runner_tool.runner_multi import run_multi, _make_output_validator
 from runner_tool.run_manifest import RunManifest
 
 from path_define import runner_montecarlo_directory, make_unique_work_dir
@@ -497,9 +497,12 @@ def _execute_montecarlo_cases(work_dir, case_solver_config_file_name_list,
     if output_all_logs:
         # keep-logs mode: on resume, re-run any case recorded complete whose CSV is
         # missing/empty (torn by a power loss), so post never reads an empty file.
+        # Build the validator from a single scan of cases/ (O(files)); the per-case glob it
+        # replaces made resume O(cases x files) and stalled on 10k-case runs. run_multi calls it
+        # only during the resume decision, before any case runs, so the snapshot is current.
         run_multi(cases_dir, case_solver_config_file_name_list, max_thread_run,
                   manifest=manifest, stop_event=stop_event,
-                  output_validator=lambda f: _case_output_valid(cases_dir, f))
+                  output_validator=_make_output_validator(cases_dir))
     else:
         import glob as _glob
         import pandas as _pd
