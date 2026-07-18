@@ -111,7 +111,10 @@ def _write_case_iip_logs(log_file_list, iip=None, iip_min_apogee=IIP_MIN_APOGEE_
     ECI 列を持たない（minimum_dump 等の）ログはスキップする。
     戻り値: (written, skipped_no_eci, skipped_small)。"""
     def _one(log_file):
-        df = pd.read_csv(log_file, usecols=lambda c: c in IIP_INPUT_COLUMNS)
+        try:
+            df = pd.read_csv(log_file, usecols=lambda c: c in IIP_INPUT_COLUMNS)
+        except (pd.errors.EmptyDataError, pd.errors.ParserError):
+            return 'empty'  # torn/empty case CSV; skip rather than fail the whole post
         if not has_iip_input(df.columns):
             return 'no_eci'
         if not should_run_iip(df, iip, iip_min_apogee):
@@ -124,10 +127,13 @@ def _write_case_iip_logs(log_file_list, iip=None, iip_min_apogee=IIP_MIN_APOGEE_
     written = sum(1 for r in results if r == 'written')
     skipped_no_eci = sum(1 for r in results if r == 'no_eci')
     skipped_small = sum(1 for r in results if r == 'small')
+    skipped_empty = sum(1 for r in results if r == 'empty')
     if skipped_no_eci:
         print(f'IIP: {skipped_no_eci}/{len(results)} 件は ECI 列が無くスキップ')
     if skipped_small:
         print(f'IIP: {skipped_small}/{len(results)} 件は頂点高度がしきい値未満でスキップ')
+    if skipped_empty:
+        print(f'IIP: {skipped_empty}/{len(results)} 件は空/破損ログでスキップ')
     return written, skipped_no_eci, skipped_small
 
 

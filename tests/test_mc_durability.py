@@ -53,9 +53,15 @@ def test_case_output_valid_detects_empty_and_missing(tmp_path):
     (cases / '0_SAMPLE_stage1_flight_log.csv').write_text('t,x\n0,0\n')  # good
     (cases / '1_SAMPLE_stage1_flight_log.csv').write_text('')            # empty (torn)
     # case 2: no file at all (lost)
+    # case 3: partial — one of the case's two logs (stage1 + ballistic) was torn to 0 bytes
+    # while the sibling survived. A power loss flushes the two logs independently, so this is
+    # the common torn shape; the whole case must be re-run, not treated as done.
+    (cases / '3_SAMPLE_stage1_flight_log.csv').write_text('t,x\n0,0\n')           # good
+    (cases / '3_SAMPLE_ballistic_stage1_flight_log.csv').write_text('')           # torn sibling
     assert runner_multi._case_output_valid(str(cases), '0_solver_config.json') is True
     assert runner_multi._case_output_valid(str(cases), '1_solver_config.json') is False
     assert runner_multi._case_output_valid(str(cases), '2_solver_config.json') is False
+    assert runner_multi._case_output_valid(str(cases), '3_solver_config.json') is False
 
 
 # --- worker stays on the fast path (no per-case fsync) ---------------------------

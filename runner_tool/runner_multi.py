@@ -14,16 +14,22 @@ def _case_flight_logs(cases_dir, solver_config_file_name):
 
 
 def _case_output_valid(cases_dir, solver_config_file_name):
-    """True iff the case has a non-empty flight-log CSV on disk. A case recorded complete
-    whose CSV is missing/empty (torn by a power loss) is treated as not done, so resume
-    re-runs it instead of leaving an empty CSV for post to trip on."""
-    for p in _case_flight_logs(cases_dir, solver_config_file_name):
+    """True iff the case's flight-log CSVs are all present and non-empty.
+
+    A case writes more than one log (e.g. stage1 + ballistic), and a power loss flushes them
+    independently, so one can be torn to 0 bytes while its sibling survives. A case recorded
+    complete with ANY missing/empty log is treated as not done, so resume re-runs the whole
+    case rather than leaving an empty CSV for post to trip on."""
+    logs = _case_flight_logs(cases_dir, solver_config_file_name)
+    if not logs:
+        return False  # no output at all -> re-run
+    for p in logs:
         try:
-            if os.path.getsize(p) > 0:
-                return True
+            if os.path.getsize(p) == 0:
+                return False  # any torn/empty log -> re-run the whole case
         except OSError:
-            pass
-    return False
+            return False
+    return True
 
 
 def _resume_remaining(solver_config_file_list, done, output_validator=None):
