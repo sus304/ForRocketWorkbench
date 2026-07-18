@@ -18,8 +18,13 @@ _DUMMY_CSV = "a,b,c,d\n0,1,1,1\n10,1,1,1\n"
 
 
 def copy_example(projects_dir, dst: Path) -> Path:
-    """Copy projects/example into dst (a non-existent path) and return it."""
-    shutil.copytree(Path(projects_dir) / "example", dst)
+    """Copy projects/example into dst (a non-existent path) and return it.
+
+    Excludes work_* output dirs: those are gitignored run outputs, and a projects/example
+    polluted by a prior manual run would otherwise carry a stray work_trajectory into the copy,
+    making make_unique_work_dir pick work_trajectory_01 and break the work-dir tests."""
+    shutil.copytree(Path(projects_dir) / "example", dst,
+                    ignore=shutil.ignore_patterns("work_*"))
     return dst
 
 
