@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from nicegui import ui
 
 _MODE_COLORS = {
@@ -20,7 +22,7 @@ def build_header(active: str = ''):
     with ui.header(elevated=True).classes('bg-blue-grey-10 text-white q-px-md items-center'):
         ui.label('ForRocket Workbench').classes('text-h6 text-weight-bold')
         ui.space()
-        pages = [('Dashboard', '/'), ('Calculate', '/calculate')]
+        pages = [('Dashboard', '/'), ('Calculate', '/calculate'), ('Jobs', '/jobs')]
         for label, path in pages:
             is_active = active == label
             (ui.button(label, on_click=lambda p=path: ui.navigate.to(p))

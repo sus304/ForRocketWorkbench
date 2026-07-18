@@ -165,3 +165,6 @@ cmd_memo.txt
 # transient run output is ignored.
 tests/**/__pycache__/
 tests/.pytest_cache/
+
+# Compute service runtime data (store, run tree, local token) — local only
+service_data/
