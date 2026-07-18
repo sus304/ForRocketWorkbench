@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import glob
 import json as _json
 import os

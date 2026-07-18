@@ -1,4 +1,6 @@
 """Hybrid rocket engine performance calculator page."""
+from __future__ import annotations
+
 from matplotlib import pyplot as plt
 from nicegui import ui
 

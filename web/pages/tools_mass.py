@@ -1,4 +1,6 @@
 """Mass budget / CG / moment-of-inertia calculator page."""
+from __future__ import annotations
+
 from nicegui import ui
 
 from web.pages.shared import build_header

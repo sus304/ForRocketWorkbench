@@ -6,6 +6,8 @@ All lengths in mm (from a reference point, typically nose tip).
 All masses in kg.
 MOI values in kg·m² (lengths converted internally from mm to m).
 """
+from __future__ import annotations
+
 
 
 def compute(components: list[dict]) -> dict:

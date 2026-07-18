@@ -5,6 +5,8 @@ Characteristics of Slender Finned Vehicles", 1967.
 
 All length inputs in mm (or any consistent unit).
 """
+from __future__ import annotations
+
 import math
 
 NOSE_CP_FRACTION: dict[str, float] = {

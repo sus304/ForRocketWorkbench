@@ -7,6 +7,8 @@ Model
 - Isentropic nozzle expansion (Cf from area ratio + ambient pressure)
 - Explicit-Euler time integration for burn simulation
 """
+from __future__ import annotations
+
 import math
 
 G0 = 9.80665  # m/s²
