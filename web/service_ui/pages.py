@@ -114,48 +114,15 @@ def jobs_page():
     with ui.column().classes('q-pa-md w-full'):
         ui.label('Compute Jobs').classes('text-h6 q-mb-sm')
 
-        # ── Submit form ───────────────────────────────────────────────────────
-        # On the VM-resident server the form is disabled: the browser cannot reach the operator's
-        # local projects/, so ③ submits via `wb submit` (design §3.3 / review Y12). Skipping it
-        # also avoids the projects-DB dependency on the server, which never runs init_db.
-        if not config.submit_enabled():
-            with ui.card().classes('w-full q-mb-md'):
-                ui.label('Submit a run').classes('text-subtitle2 q-mb-xs')
-                ui.label('Submit from the CLI: `wb submit <project> <mode>`. '
-                         'Browser upload arrives with the UI refresh.') \
-                    .classes('text-caption text-grey')
-        else:
-            from web.services.project_service import scan_projects, projects_dir, get_model_id
-            projects = scan_projects()
-            with ui.card().classes('w-full q-mb-md'):
-                ui.label('Submit a run').classes('text-subtitle2 q-mb-sm')
-                with ui.row().classes('items-center q-gutter-md w-full'):
-                    project_select = ui.select(projects, label='Project',
-                                               value=projects[0] if projects else None) \
-                        .props('dense outlined').style('min-width:220px')
-                    mode_select = ui.select(_MODES, label='Mode', value='trajectory') \
-                        .props('dense outlined').style('min-width:160px')
-                    max_thread = ui.checkbox('Max threads (-X)')
-                    submit_btn = ui.button('Submit', icon='send').props('color=primary')
-
-                def _submit():
-                    proj = project_select.value
-                    mode = mode_select.value
-                    if not proj:
-                        ui.notify('Select a project first.', type='warning')
-                        return
-                    project_dir = projects_dir() / proj
-                    try:
-                        res = client().submit(project_dir, mode,
-                                              model_name=get_model_id(proj),
-                                              use_max_thread=max_thread.value)
-                    except Exception as exc:  # service unreachable / upload rejected
-                        ui.notify(f'Submit failed: {exc}', type='negative', multi_line=True)
-                        return
-                    ui.notify(f'Job #{res["id"]} queued ({mode}).', type='positive')
-                    jobs_list.refresh()
-
-                submit_btn.on_click(lambda: _submit())
+        # ── Submit: runs are submitted from the Projects page ─────────────────
+        # Projects live server-side now (UI-refresh model); submission happens per project on
+        # /projects (select + Submit). The old local-projects form / wb-only note are gone.
+        with ui.card().classes('w-full q-mb-md'):
+            ui.label('Submit a run').classes('text-subtitle2 q-mb-xs')
+            with ui.row().classes('items-center q-gutter-sm'):
+                ui.label('Runs are submitted from a stored project.').classes('text-caption text-grey q-my-auto')
+                ui.button('Go to Projects', icon='folder',
+                          on_click=lambda: ui.navigate.to('/projects')).props('dense flat color=primary')
 
         # ── Health strip ──────────────────────────────────────────────────────
         @ui.refreshable

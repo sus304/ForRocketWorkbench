@@ -15,6 +15,7 @@ import web.pages.tools_barrowman  # noqa: F401 — registers @ui.page('/tools/ba
 import web.pages.tools_mass       # noqa: F401 — registers @ui.page('/tools/mass')
 import web.pages.tools_engine     # noqa: F401 — registers @ui.page('/tools/engine')
 import web.service_ui.pages        # noqa: F401 — registers @ui.page('/jobs') + @ui.page('/jobs/{job_id}')
+import web.service_ui.projects_ui   # noqa: F401 — registers @ui.page('/projects') + edit
 
 from web.service_ui import config as _service_config
 

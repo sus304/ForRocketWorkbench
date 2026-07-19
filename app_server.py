@@ -19,7 +19,8 @@ from starlette.responses import RedirectResponse
 
 from service.serve import validate_bind_host
 from web.service_ui import auth
-import web.service_ui.pages  # noqa: F401 — registers @ui.page('/jobs') + @ui.page('/jobs/{id}')
+import web.service_ui.pages        # noqa: F401 — registers @ui.page('/jobs') + @ui.page('/jobs/{id}')
+import web.service_ui.projects_ui   # noqa: F401 — registers @ui.page('/projects') + edit
 
 DEFAULT_PORT = 8081
 

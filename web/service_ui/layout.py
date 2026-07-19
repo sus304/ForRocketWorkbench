@@ -15,5 +15,7 @@ def service_header(active: str = "") -> None:
         ui.button("ForRocket Workbench", on_click=lambda: ui.navigate.to("/jobs")) \
             .props("flat no-caps").classes("text-h6 text-weight-bold text-white")
         ui.space()
-        ui.button("Jobs", on_click=lambda: ui.navigate.to("/jobs")).props("flat") \
-            .classes("text-white " + ("text-weight-bold" if active == "Jobs" else "text-weight-regular"))
+        for label, path in (("Projects", "/projects"), ("Jobs", "/jobs")):
+            ui.button(label, on_click=lambda p=path: ui.navigate.to(p)).props("flat") \
+                .classes("text-white " +
+                         ("text-weight-bold" if active == label else "text-weight-regular"))
