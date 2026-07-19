@@ -297,52 +297,9 @@ def _mc_histogram_opts(data: list, title: str, unit: str, color: str) -> dict:
     }
 
 
-def compute_impact_ellipses(lat_list: list, lon_list: list):
-    """Compute 1σ/2σ/3σ impact ellipses in both NE and lat/lon coordinates.
-
-    Returns east, north arrays [m], mean_lat, mean_lon,
-    ne_ellipses [(nsig, color, [[e,n],...])],
-    ll_ellipses [(nsig, color, [[lat,lon],...])].
-    """
-    lats = np.array(lat_list, dtype=float)
-    lons = np.array(lon_list, dtype=float)
-    mean_lat = float(lats.mean())
-    mean_lon = float(lons.mean())
-    R = 6_371_000.0
-    cos_lat = float(np.cos(np.radians(mean_lat)))
-    north = (lats - mean_lat) * (np.pi / 180) * R
-    east  = (lons - mean_lon) * (np.pi / 180) * R * cos_lat
-
-    ne_ellipses: list = []
-    ll_ellipses: list = []
-    if len(lats) >= 3:
-        try:
-            cov = np.cov(np.stack([east, north]))
-            eigvals, eigvecs = np.linalg.eigh(cov)
-            order = np.argsort(eigvals)[::-1]
-            eigvals, eigvecs = eigvals[order], eigvecs[:, order]
-            theta = np.linspace(0, 2 * np.pi, 120)
-            cos_t, sin_t = np.cos(theta), np.sin(theta)
-            for nsig, clr in [(1, '#4caf50'), (2, '#ff9800'), (3, '#f44336')]:
-                a = nsig * float(np.sqrt(max(float(eigvals[0]), 0.0)))
-                b = nsig * float(np.sqrt(max(float(eigvals[1]), 0.0)))
-                ne_pts: list = []
-                ll_pts: list = []
-                for ct, st in zip(cos_t, sin_t):
-                    v = eigvecs @ np.array([a * ct, b * st])
-                    e, nv = float(v[0]), float(v[1])
-                    ne_pts.append([e, nv])
-                    ll_pts.append([
-                        mean_lat + nv / R * (180 / np.pi),
-                        mean_lon + e / (R * cos_lat) * (180 / np.pi),
-                    ])
-                ne_pts.append(ne_pts[0])
-                ll_pts.append(ll_pts[0])
-                ne_ellipses.append((nsig, clr, ne_pts))
-                ll_ellipses.append((nsig, clr, ll_pts))
-        except Exception:
-            pass
-    return east, north, mean_lat, mean_lon, ne_ellipses, ll_ellipses
+# Impact-dispersion ellipse math moved to service.results so the plots API and this echarts
+# render share one implementation (design §3.4). Re-exported here for existing callers/tests.
+from service.results import compute_impact_ellipses  # noqa: E402,F401
 
 
 def _mc_impact_scatter_opts(scatter_data: list, ne_ellipses: list) -> dict:
