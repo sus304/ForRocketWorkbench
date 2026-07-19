@@ -18,11 +18,8 @@ from __future__ import annotations
 import os
 import secrets
 from pathlib import Path
-from typing import Optional
-from urllib.parse import urlparse
 
 from service.client import ServiceClient
-from service import supervisor
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -30,8 +27,6 @@ TOKEN_FILENAME = ".token"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8760
 DEFAULT_URL = f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"
-
-_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
 
 
 def default_data_root() -> Path:
@@ -66,37 +61,6 @@ def service_url() -> str:
     return os.environ.get("WB_SERVICE_URL", DEFAULT_URL)
 
 
-def submit_enabled() -> bool:
-    """Whether the /jobs page shows the project-submit form. Disabled on the VM-resident server
-    (app_server sets WB_UI_SUBMIT_DISABLED): the browser has no access to the operator's local
-    projects/ there, so ③ submits via `wb submit` until the browser-upload path lands (design
-    §3.3 / review Y12). Disabling it also keeps the server UI free of the projects DB dependency."""
-    return os.environ.get("WB_UI_SUBMIT_DISABLED", "").lower() not in ("1", "true", "yes")
-
-
-def is_local_url(url: str) -> bool:
-    """True if the URL points at the loopback interface — i.e. the service should be spawned
-    and supervised locally (②). A tailnet/remote URL (③) is owned by systemd; the GUI only
-    connects."""
-    return urlparse(url).hostname in _LOOPBACK_HOSTS
-
-
 def get_client(data_root=None, session=None) -> ServiceClient:
     root = default_data_root() if data_root is None else Path(data_root)
     return ServiceClient(service_url(), load_or_create_token(root), session=session)
-
-
-def ensure_service(client: Optional[ServiceClient] = None, data_root=None):
-    """For a local URL (②), spawn+supervise the service if none is answering; return the
-    Popen (or None if one is already up). For a remote URL (③), do nothing — systemd owns it,
-    so return None. Never kills the service on GUI exit (design §4.3)."""
-    url = service_url()
-    root = default_data_root() if data_root is None else Path(data_root)
-    client = client or get_client(root)
-    if not is_local_url(url):
-        return None
-    parsed = urlparse(url)
-    return supervisor.ensure_local_service(
-        client, root, load_or_create_token(root),
-        host=parsed.hostname or DEFAULT_HOST, port=parsed.port or DEFAULT_PORT,
-    )

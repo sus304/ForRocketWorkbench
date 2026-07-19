@@ -22,9 +22,8 @@ from nicegui import ui
 
 from web.service_ui.layout import service_header
 from web.service_ui import config, render
-# NOTE: web.services.project_service (which pulls in web.db) is imported lazily inside the
-# submit-form branch only. The VM-resident server disables that form (config.submit_enabled()
-# is False), so app_server never imports the DB layer or opens workbench.db (design §3.1.2).
+# Runs are submitted from the Projects page (projects_ui) now; this module has no dependency on
+# the retired projects DB / legacy services.
 
 _MODES = ['trajectory', 'area', 'montecarlo', 'sensitivity']
 _ACTIVE_STATUSES = {'preparing', 'queued', 'running'}

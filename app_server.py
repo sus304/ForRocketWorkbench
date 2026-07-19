@@ -84,9 +84,6 @@ def main():
     password = os.environ.get("WB_UI_PASSWORD", "")
     if not password:
         raise SystemExit("WB_UI_PASSWORD is not set; refusing to start the UI without login")
-    # The server has no local projects to submit from; browser upload is not built yet, so ③
-    # submits via `wb`. This also keeps the projects DB out of the server (design §3.3 / Y12).
-    os.environ.setdefault("WB_UI_SUBMIT_DISABLED", "1")
     storage_secret = os.environ.get("WB_UI_STORAGE_SECRET") or password
     app.add_middleware(AuthMiddleware)
     ui.run(

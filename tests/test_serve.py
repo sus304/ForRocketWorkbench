@@ -13,7 +13,6 @@ from service.serve import (
     validate_bind_host, BindError, SingleInstanceLock, AlreadyRunning, build_service,
 )
 from service.client import ServiceClient
-from service.supervisor import is_up
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost", "100.101.102.103"])
@@ -105,17 +104,3 @@ def test_build_service_notifies_on_completion(tmp_path):
     finally:
         store.close()
 
-
-def test_is_up_true_via_client_and_false_when_unreachable(tmp_path):
-    store, worker, app = _stub_service(tmp_path, "tok")
-    try:
-        up_client = ServiceClient("", "tok", session=TestClient(app))
-        assert is_up(up_client) is True
-
-        class _Dead:
-            def health(self):
-                raise ConnectionError("refused")
-
-        assert is_up(_Dead()) is False
-    finally:
-        store.close()

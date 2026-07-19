@@ -53,10 +53,6 @@ def test_service_url_respects_env(monkeypatch):
     assert config.service_url() == "http://100.101.102.103:8760"
 
 
-def test_is_local_url():
-    assert config.is_local_url("http://127.0.0.1:8760") is True
-    assert config.is_local_url("http://localhost:9000") is True
-    assert config.is_local_url("http://100.101.102.103:8760") is False
 
 
 # --- client ------------------------------------------------------------------

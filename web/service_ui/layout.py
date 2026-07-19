@@ -1,9 +1,8 @@
 """Header for the service UI (use cases ②/③).
 
-Separate from web.pages.shared.build_header, which links to the legacy pages (Dashboard `/`,
-Calculate `/calculate`, Tools `/tools/*`). Those routes are not registered by app_server (③),
-so the legacy header's links 404 there. The service UI is independent (design §3.1), so it gets
-its own minimal header that only points at routes this UI actually serves.
+Minimal header linking only to routes this UI serves (Projects, Jobs, Tools). Replaces the
+legacy build_header, which pointed at now-removed pages (Dashboard/Calculate); the service UI is
+independent (design §3.1).
 """
 from __future__ import annotations
 
