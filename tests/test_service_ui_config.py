@@ -48,6 +48,13 @@ def test_service_url_defaults_to_loopback():
     assert config.service_url() == "http://127.0.0.1:8760"
 
 
+def test_external_3d_url_gated(monkeypatch):
+    monkeypatch.delenv("WB_EXTERNAL_3D_URL", raising=False)
+    assert config.external_3d_url() == ""
+    monkeypatch.setenv("WB_EXTERNAL_3D_URL", "http://100.x:8082/")
+    assert config.external_3d_url() == "http://100.x:8082/"
+
+
 def test_service_url_respects_env(monkeypatch):
     monkeypatch.setenv("WB_SERVICE_URL", "http://100.101.102.103:8760")
     assert config.service_url() == "http://100.101.102.103:8760"

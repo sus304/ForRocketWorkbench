@@ -605,6 +605,15 @@ def render_result(client, job_id, mode: str, key) -> None:
     if summary_items:
         _build_summary_card(summary_items)
 
+    # Optional external detailed-3D viewer link (config-gated, neutral name; design §10).
+    from web.service_ui import config as _cfg
+    ext_3d = _safe(lambda: _cfg.external_3d_url(), '')
+    if ext_3d:
+        with ui.row().classes('q-mb-sm'):
+            ui.button('Open in detailed 3D',
+                      on_click=lambda u=ext_3d: ui.navigate.to(u, new_tab=True)) \
+                .props('flat color=primary icon=open_in_new')
+
     if mode == 'sensitivity':
         _build_sensitivity_card(client, job_id)
 

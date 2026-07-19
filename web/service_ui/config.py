@@ -61,6 +61,13 @@ def service_url() -> str:
     return os.environ.get("WB_SERVICE_URL", DEFAULT_URL)
 
 
+def external_3d_url() -> str:
+    """Optional external detailed-3D viewer URL (design ui_refresh §10). Config-gated and neutral:
+    when WB_EXTERNAL_3D_URL is unset the UI shows no such link, and no product name/host is baked
+    into the public repo (review R-K)."""
+    return os.environ.get("WB_EXTERNAL_3D_URL", "").strip()
+
+
 def get_client(data_root=None, session=None) -> ServiceClient:
     root = default_data_root() if data_root is None else Path(data_root)
     return ServiceClient(service_url(), load_or_create_token(root), session=session)
