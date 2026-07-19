@@ -20,7 +20,10 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.responses import StreamingResponse
 
 from runner_tool.run_manifest import RunManifest
-from service import plots, results
+from service import plots, projects, results
+from service.projects import (
+    ProjectConflict, ProjectError, ProjectExists, ProjectNotFound,
+)
 from service.results import ResultError, ResultsGone
 from service.store import JobStore, PREPARING, QUEUED, RUNNING, TERMINAL_STATUSES
 from service.uploads import pack_result, safe_extract, UploadError
@@ -338,6 +341,80 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
         media = _IMAGE_MEDIA[format]
         return StreamingResponse(io.BytesIO(blob), media_type=media,
                                  headers=_attachment(f"job{job_id}_{kind}.{format}"))
+
+    # ── project store (docs/ui_refresh_design.md §3) ──────────────────────────
+    def project_error(exc: Exception):
+        if isinstance(exc, ProjectNotFound):
+            return HTTPException(404, str(exc))
+        if isinstance(exc, (ProjectExists, ProjectConflict)):
+            return HTTPException(409, str(exc))
+        return HTTPException(422, str(exc))
+
+    data_root = worker.data_root
+
+    @app.get("/projects", dependencies=auth)
+    def list_projects():
+        return {"projects": projects.list_projects(data_root)}
+
+    @app.post("/projects", dependencies=auth)
+    def create_project(name: str = Form(...)):
+        try:
+            projects.create_project(data_root, name)
+        except ProjectError as e:
+            raise project_error(e)
+        return {"name": name}
+
+    @app.post("/projects/{name}/copy", dependencies=auth)
+    def copy_project(name: str, dest: str = Form(...)):
+        try:
+            projects.copy_project(data_root, name, dest)
+        except ProjectError as e:
+            raise project_error(e)
+        return {"name": dest}
+
+    @app.delete("/projects/{name}", dependencies=auth)
+    def delete_project(name: str):
+        try:
+            projects.delete_project(data_root, name)
+        except ProjectError as e:
+            raise project_error(e)
+        return {"deleted": name}
+
+    @app.get("/projects/{name}/config", dependencies=auth)
+    def get_project_config(name: str):
+        try:
+            return projects.read_config(data_root, name)
+        except ProjectError as e:
+            raise project_error(e)
+
+    @app.put("/projects/{name}/config", dependencies=auth)
+    def put_project_config(name: str, files: str = Form(...), if_match: str = Form(None)):
+        try:
+            parsed = json.loads(files)
+        except ValueError as e:
+            raise HTTPException(422, f"files not valid JSON: {e}")
+        try:
+            return projects.write_config(data_root, name, parsed, if_match=if_match)
+        except ProjectError as e:
+            raise project_error(e)
+
+    @app.post("/projects/{name}/upload", dependencies=auth)
+    async def upload_project(name: str, payload: UploadFile = File(...)):
+        data = await payload.read()
+        try:
+            projects.upload_project(data_root, name, data)
+        except ProjectError as e:
+            raise project_error(e)
+        return {"name": name}
+
+    @app.get("/projects/{name}/download", dependencies=auth)
+    def download_project(name: str):
+        try:
+            blob = projects.download_project(data_root, name)
+        except ProjectError as e:
+            raise project_error(e)
+        return StreamingResponse(io.BytesIO(blob), media_type="application/zip",
+                                 headers=_attachment(f"{name}.zip"))
 
     return app
 

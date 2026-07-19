@@ -80,6 +80,54 @@ class ServiceClient:
         r.raise_for_status()
         return r.json()
 
+    # ── server-side project store (design ui_refresh §3) ─────────────────────
+
+    def list_projects(self) -> list:
+        r = self.s.get(self._url("/projects"), headers=self.headers)
+        r.raise_for_status()
+        return r.json()["projects"]
+
+    def create_project(self, name: str) -> dict:
+        r = self.s.post(self._url("/projects"), headers=self.headers, data={"name": name})
+        r.raise_for_status()
+        return r.json()
+
+    def copy_project(self, name: str, dest: str) -> dict:
+        r = self.s.post(self._url(f"/projects/{name}/copy"), headers=self.headers,
+                        data={"dest": dest})
+        r.raise_for_status()
+        return r.json()
+
+    def delete_project(self, name: str) -> dict:
+        r = self.s.delete(self._url(f"/projects/{name}"), headers=self.headers)
+        r.raise_for_status()
+        return r.json()
+
+    def get_project_config(self, name: str) -> dict:
+        r = self.s.get(self._url(f"/projects/{name}/config"), headers=self.headers)
+        r.raise_for_status()
+        return r.json()
+
+    def put_project_config(self, name: str, files: dict, if_match: str = None) -> dict:
+        import json as _json
+        data = {"files": _json.dumps(files)}
+        if if_match is not None:
+            data["if_match"] = if_match
+        r = self.s.put(self._url(f"/projects/{name}/config"), headers=self.headers, data=data)
+        r.raise_for_status()
+        return r.json()
+
+    def upload_project(self, name: str, zip_bytes: bytes) -> dict:
+        r = self.s.post(self._url(f"/projects/{name}/upload"), headers=self.headers,
+                        files={"payload": ("project.zip", zip_bytes, "application/zip")})
+        r.raise_for_status()
+        return r.json()
+
+    def download_project(self, name: str) -> bytes:
+        r = self.s.get(self._url(f"/projects/{name}/download"), headers=self.headers)
+        r.raise_for_status()
+        return r.content
+
     # ── remote result API (design §4-5). The GUI and `wb extract` reach results through these
     # rather than reading result_dir directly, so decimation/limits are enforced in one place
     # and the mixed-topology (local UI -> remote service) path keeps working (§3.4). ──────────
