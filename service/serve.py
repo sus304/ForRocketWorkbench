@@ -80,6 +80,9 @@ def run(host: str, port: int, data_root, token: str) -> None:  # pragma: no cove
     """
     import uvicorn
 
+    if not token:
+        raise ValueError("WB_API_TOKEN is empty; refusing to start with an open API "
+                         "(set the token or use the local auto-generated secret)")
     host = validate_bind_host(host)
     data_root = Path(data_root)
     with SingleInstanceLock(data_root / "service.lock"):
