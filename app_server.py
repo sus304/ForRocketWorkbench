@@ -21,6 +21,10 @@ from service.serve import validate_bind_host
 from web.service_ui import auth
 import web.service_ui.pages        # noqa: F401 — registers @ui.page('/jobs') + @ui.page('/jobs/{id}')
 import web.service_ui.projects_ui   # noqa: F401 — registers @ui.page('/projects') + edit
+import web.pages.tools             # noqa: F401 — /tools menu (service_header, DB-free calculators)
+import web.pages.tools_barrowman   # noqa: F401 — /tools/barrowman
+import web.pages.tools_mass        # noqa: F401 — /tools/mass
+import web.pages.tools_engine      # noqa: F401 — /tools/engine
 
 DEFAULT_PORT = 8081
 

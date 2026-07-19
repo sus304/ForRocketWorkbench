@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from nicegui import ui
 
-from web.pages.shared import build_header
+from web.service_ui.layout import service_header
 
 
 @ui.page('/tools')
 def tools_page():
-    build_header('Tools')
+    service_header('Tools')
 
     with ui.column().classes('q-pa-xl items-center w-full'):
         ui.label('Engineering Tools').classes('text-h5 q-mb-xs')

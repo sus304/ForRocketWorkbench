@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from nicegui import ui
 
-from web.pages.shared import build_header
+from web.service_ui.layout import service_header
 from web.tools import barrowman as bm
 
 _NOSE_OPTIONS = {k: v for k, v in bm.NOSE_LABELS.items()}
@@ -203,7 +203,7 @@ def _rocket_svg(
 
 @ui.page('/tools/barrowman')
 def barrowman_page():
-    build_header('Tools')
+    service_header('Tools')
 
     # ── mutable state shared across closures ──────────────────────────────────
     fin_set_inputs: list[dict] = []   # ui-element dicts per fin set

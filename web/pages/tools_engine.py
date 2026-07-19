@@ -4,7 +4,7 @@ from __future__ import annotations
 from matplotlib import pyplot as plt
 from nicegui import ui
 
-from web.pages.shared import build_header
+from web.service_ui.layout import service_header
 from web.tools import engine_perf as ep
 
 _FUEL_KEYS = list(ep.FUEL_PRESETS.keys())
@@ -71,7 +71,7 @@ def _grain_svg(d_port_mm: float, d_outer_mm: float, L_grain_mm: float) -> str:
 
 @ui.page('/tools/engine')
 def engine_page():
-    build_header('Tools')
+    service_header('Tools')
 
     _el: dict = {}   # holds all input ui-elements + 'result_panel', 'chart_holder'
 

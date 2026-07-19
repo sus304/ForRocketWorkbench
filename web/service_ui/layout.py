@@ -19,3 +19,9 @@ def service_header(active: str = "") -> None:
             ui.button(label, on_click=lambda p=path: ui.navigate.to(p)).props("flat") \
                 .classes("text-white " +
                          ("text-weight-bold" if active == label else "text-weight-regular"))
+        with ui.dropdown_button("Tools", auto_close=True).props("flat") \
+                .classes("text-white " +
+                         ("text-weight-bold" if active == "Tools" else "text-weight-regular")):
+            ui.item("🧮 Barrowman CP", on_click=lambda: ui.navigate.to("/tools/barrowman"))
+            ui.item("⚖️ Mass & Inertia", on_click=lambda: ui.navigate.to("/tools/mass"))
+            ui.item("🔥 Hybrid Engine", on_click=lambda: ui.navigate.to("/tools/engine"))

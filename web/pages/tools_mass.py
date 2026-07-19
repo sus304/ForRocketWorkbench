@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from nicegui import ui
 
-from web.pages.shared import build_header
+from web.service_ui.layout import service_header
 from web.tools import mass_budget as mb
 
 _CG_COLORS = ['#42a5f5', '#66bb6a', '#ffa726', '#ef5350', '#ab47bc', '#26c6da', '#8d6e63', '#78909c']
@@ -101,7 +101,7 @@ _DEFAULT_COMPONENTS = [
 
 @ui.page('/tools/mass')
 def mass_page():
-    build_header('Tools')
+    service_header('Tools')
 
     # ── state ─────────────────────────────────────────────────────────────────
     import copy
