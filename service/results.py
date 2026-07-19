@@ -18,6 +18,7 @@ is meaningful); case_metrics.csv exists only in stats-only mode where per-case l
 from __future__ import annotations
 
 import glob
+import math
 import os
 from pathlib import Path
 from typing import List, Optional
@@ -80,11 +81,20 @@ def _table_path(result_dir: str, name: str) -> Path:
     return p
 
 
+def _rows_json_safe(df: pd.DataFrame) -> list:
+    """DataFrame -> list-of-rows with NaN/Inf turned into None. FastAPI's JSON encoder rejects
+    non-finite floats (allow_nan=False), and real flight logs contain NaN (pre-launch samples,
+    ungated diagnostics); a plain df.where(notnull, None) does not help because assigning None
+    into a float column coerces back to NaN. So sanitise on the native-Python values."""
+    rows = df.values.tolist()
+    return [[None if isinstance(v, float) and not math.isfinite(v) else v for v in row]
+            for row in rows]
+
+
 def read_table(result_dir: str, name: str) -> dict:
     """Return a light table as {columns:[...], rows:[[...]]} (JSON-friendly)."""
     df = pd.read_csv(_table_path(result_dir, name))
-    return {"columns": list(df.columns),
-            "rows": df.where(pd.notnull(df), None).values.tolist()}
+    return {"columns": list(df.columns), "rows": _rows_json_safe(df)}
 
 
 def list_case_logs(result_dir: str) -> List[dict]:
@@ -338,7 +348,7 @@ def _read_log(path: str, columns, t_start, t_end, max_points) -> dict:
         df = _decimate(df, max_points)
         decimated = True
     return {"columns": list(df.columns), "n_points": int(len(df)), "decimated": decimated,
-            "rows": df.where(pd.notnull(df), None).values.tolist()}
+            "rows": _rows_json_safe(df)}
 
 
 def _decimate(df: pd.DataFrame, max_points: int) -> pd.DataFrame:

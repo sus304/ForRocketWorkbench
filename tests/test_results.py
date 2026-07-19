@@ -170,3 +170,18 @@ def test_extract_limits(mc_work_dir):
 
     with pytest.raises(results.ResultError):
         results.extract(str(mc_work_dir), select="id:0", columns=["No Such Column"])
+
+
+def test_extract_nan_inf_becomes_null(tmp_path):
+    """Real flight logs contain NaN/Inf; the JSON payload must carry None, not non-finite floats
+    (FastAPI's encoder rejects those). Regression for the E2E ValueError."""
+    import json
+    wd = tmp_path / "work_montecarlo"
+    (wd / "cases").mkdir(parents=True)
+    (wd / "cases" / "0_stage1_flight_log.csv").write_text(
+        "Time [s],Altitude [m]\n0,100\n0.5,nan\n1.0,inf\n")
+    ex = results.extract(str(wd), select="id:0", phase="stage1", kind="flight", max_points=0)
+    rows = ex["logs"][0]["rows"]
+    alt = [r[1] for r in rows]
+    assert alt[0] == 100 and alt[1] is None and alt[2] is None
+    json.dumps(rows)  # must not raise
