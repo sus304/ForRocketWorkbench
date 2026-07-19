@@ -1,0 +1,40 @@
+# ForRocket Workbench UI front-end (systemd unit template, use case ③).
+#
+# Runs app_server.py: the new /jobs UI only, session-login in front, bound to the tailscale
+# interface. The compute service (forrocket-jobsvc) is a separate unit; this one only connects
+# to it via WB_SERVICE_URL. Install on the VM alongside forrocket-jobsvc (docs/workstation_setup.md).
+#
+#   sudo cp packaging/forrocket-webui.service /etc/systemd/system/
+#   sudoedit /etc/forrocket-webui.env      # see the EnvironmentFile keys below
+#   sudo systemctl daemon-reload && sudo systemctl enable --now forrocket-webui
+#
+# EnvironmentFile (/etc/forrocket-webui.env, chmod 600, never committed):
+#   WB_UI_HOST=<tailscale0-ip>          # interface to serve; validate_bind_host refuses 0.0.0.0/LAN
+#   WB_UI_PASSWORD=<login password>     # required; app_server refuses to start without it
+#   WB_UI_STORAGE_SECRET=<random>       # optional; session-cookie signing key (defaults to password)
+#   WB_SERVICE_URL=http://<jobsvc>:8760 # the compute service address (systemd-owned; not spawned)
+#   WB_API_TOKEN=<same token as jobsvc> # the UI holds the bearer token and proxies for the browser
+
+[Unit]
+Description=ForRocket Workbench UI front-end
+# Order after tailscaled (the bind target is the tailscale0 address) and after the compute
+# service it talks to (review R4). Without this ordering the UI can start before tailscale0 has
+# an address and die on bind.
+After=network-online.target tailscaled.service forrocket-jobsvc.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<user>
+WorkingDirectory=/home/<user>/ForRocketWorkbench
+EnvironmentFile=/etc/forrocket-webui.env
+ExecStart=/home/<user>/ForRocketWorkbench/.venv/bin/python app_server.py
+Restart=always
+RestartSec=5
+# Never permanently give up (review R4): after a reboot the tailscale0 address can appear a few
+# seconds late, so the first binds may fail. A capped StartLimit (as on jobsvc) would down the UI
+# for the rest of the uptime with no one to restart it. The bind succeeds once tailscale is up.
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target

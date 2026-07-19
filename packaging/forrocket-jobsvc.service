@@ -10,7 +10,9 @@
 
 [Unit]
 Description=ForRocket Workbench compute job service
-After=network-online.target
+# Order after tailscaled: when binding the tailscale0 address (③), starting before that
+# interface has an address makes the bind fail (review R4).
+After=network-online.target tailscaled.service
 Wants=network-online.target
 
 [Service]
