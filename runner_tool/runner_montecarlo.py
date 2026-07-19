@@ -415,10 +415,20 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
 
         # Wind
         if error_params.get('Wind').get('Enable'):
-            wind_file_name = wind_files[case_num]
-            shutil.copy(work_dir+'/'+winds_dir+'/'+wind_file_name,
-                        work_dir+'/'+calc_dir+'/'+wind_file_name)
-            solver_config_case['Wind Condition']['Wind File Path'] = wind_file_name
+            nominal_wind = solver_config.get('Wind Condition', {}).get('Wind File Path', '')
+            if case_num == 0 and nominal_wind and os.path.exists(nominal_wind):
+                # Case 0 is the nominal case, so it uses the nominal wind (from solver_config)
+                # rather than a dispersion sample, matching how every other error parameter pins
+                # case 0 to its nominal value. copy_wind_file stages the nominal wind into cases/
+                # by basename and rewrites this case's path; wind_files[0] is left unused.
+                # (No nominal wind configured / file missing: fall through to a dispersion sample
+                # so a wind-only dispersion setup keeps working.)
+                copy_wind_file(solver_config_case, work_dir+'/'+calc_dir)
+            else:
+                wind_file_name = wind_files[case_num]
+                shutil.copy(work_dir+'/'+winds_dir+'/'+wind_file_name,
+                            work_dir+'/'+calc_dir+'/'+wind_file_name)
+                solver_config_case['Wind Condition']['Wind File Path'] = wind_file_name
         # else: the nominal wind was copied into cases/ and rewritten to its basename before
         # the pool (copy_wind_file); the deepcopy carries that basename, so nothing to do here.
         solver_config_case['Wind Condition']['Enable Wind'] = True
