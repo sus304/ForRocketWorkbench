@@ -61,6 +61,12 @@ class Job(Base):
     input_ref = Column(String, default="")
     input_snapshot = Column(Text, default="")
 
+    # project: the server-side project this job was submitted from (UI refresh design §5); used to
+    # group a project's recent jobs. Empty for closure-upload (wb) submits. memo: free-text label
+    # for triage (design §6 / review N-1); the legacy web.db had memo, the job store did not.
+    project = Column(String, default="")
+    memo = Column(Text, default="")
+
     summary = Column(Text, default="")
     error_message = Column(Text, default="")
 
@@ -91,6 +97,18 @@ class JobStore:
 
         self._Session = sessionmaker(bind=self._engine, expire_on_commit=False)
         Base.metadata.create_all(self._engine)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a DB was first created. create_all() does not ALTER an
+        existing table, so a jobs.db from before `project`/`memo` needs them added explicitly."""
+        from sqlalchemy import text
+        with self._engine.begin() as conn:
+            existing = {row[1] for row in conn.execute(text("PRAGMA table_info(jobs)"))}
+            for col in ("project", "memo"):
+                if col not in existing:
+                    coltype = "VARCHAR" if col == "project" else "TEXT"
+                    conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {col} {coltype} DEFAULT ''"))
 
     # --- writes -------------------------------------------------------------
 
@@ -111,7 +129,7 @@ class JobStore:
             return job.id
 
     def create_preparing(self, mode: str, model_name: str = "", use_max_thread: bool = False,
-                         input_ref: str = "", input_snapshot: str = "") -> int:
+                         input_ref: str = "", input_snapshot: str = "", project: str = "") -> int:
         """Create a job in `preparing` (not yet claimable). Call mark_queued() once inputs
         are staged."""
         with self._Session() as session:
@@ -123,10 +141,14 @@ class JobStore:
                 enqueued_at=_now(),
                 input_ref=input_ref,
                 input_snapshot=input_snapshot,
+                project=project,
             )
             session.add(job)
             session.commit()
             return job.id
+
+    def set_memo(self, job_id: int, memo: str) -> None:
+        self._update(job_id, memo=memo)
 
     def mark_queued(self, job_id: int) -> None:
         self._update(job_id, status=QUEUED)

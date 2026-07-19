@@ -90,6 +90,8 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
             "work_dir": job.work_dir,
             "result_dir": job.result_dir,
             "error_message": job.error_message,
+            "project": getattr(job, "project", "") or "",
+            "memo": getattr(job, "memo", "") or "",
             "capability": {"can_cancel": job.status in _ACTIVE,
                            "result_api": _result_api_available(job)},
             "progress": progress_of(job),
@@ -184,6 +186,13 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
             raise HTTPException(400, f"upload rejected: {e}")
         store.mark_queued(job_id)
         return {"id": job_id, "status": QUEUED}
+
+    @app.put("/jobs/{job_id}/memo", dependencies=auth)
+    def set_memo(job_id: int, memo: str = Form("")):
+        if store.get(job_id) is None:
+            raise HTTPException(404, "job not found")
+        store.set_memo(job_id, memo)
+        return {"id": job_id, "memo": memo}
 
     @app.post("/jobs/{job_id}/cancel", dependencies=auth)
     def cancel_job(job_id: int):

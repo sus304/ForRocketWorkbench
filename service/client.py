@@ -61,6 +61,12 @@ class ServiceClient:
         r.raise_for_status()
         return r.json()
 
+    def set_memo(self, job_id: int, memo: str) -> dict:
+        r = self.s.put(self._url(f"/jobs/{job_id}/memo"), headers=self.headers,
+                       data={"memo": memo})
+        r.raise_for_status()
+        return r.json()
+
     def pull(self, job_id: int, dest, full: bool = False) -> Path:
         params = {"full": "1"} if full else {}
         r = self.s.get(self._url(f"/jobs/{job_id}/result.tar.gz"),

@@ -38,6 +38,13 @@ def test_cases_and_extract_json(store, worker):
     assert ex["logs"][0]["columns"] == ["Time [s]", "Altitude [m]"]
 
 
+def test_set_memo_roundtrip(store, worker):
+    jid = _fabricate_mc(store, worker)
+    sc = _client(store, worker)
+    sc.set_memo(jid, "resonance ok")
+    assert sc.status(jid)["memo"] == "resonance ok"
+
+
 def test_extract_file_zip_and_plot_bytes(store, worker):
     jid = _fabricate_mc(store, worker)
     sc = _client(store, worker)

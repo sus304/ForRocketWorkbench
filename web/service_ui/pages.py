@@ -79,6 +79,20 @@ def progress_fraction(progress: Optional[dict]) -> Optional[float]:
     return min(1.0, (progress.get('done') or 0) / total)
 
 
+def filter_jobs(jobs: list, query: str = '', mode: str = 'all') -> list:
+    """Filter the job list by mode and a free-text query over id/model_name/project/memo.
+    Pure/testable for the /jobs search + mode filter (design §6 / review R-O)."""
+    out = jobs
+    if mode and mode != 'all':
+        out = [j for j in out if j.get('mode') == mode]
+    q = (query or '').strip().lower()
+    if q:
+        def _hay(j):
+            return ' '.join(str(j.get(k, '')) for k in ('id', 'model_name', 'project', 'memo')).lower()
+        out = [j for j in out if q in _hay(j)]
+    return out
+
+
 # ── Client access ─────────────────────────────────────────────────────────────
 
 _client = None
@@ -163,16 +177,31 @@ def jobs_page():
 
         health_strip()
 
-        # ── Jobs list ─────────────────────────────────────────────────────────
+        # ── Jobs list (with search + mode filter) ─────────────────────────────
+        flt = {'q': '', 'mode': 'all'}
+        with ui.row().classes('items-center q-gutter-sm q-mt-xs'):
+            def _set_q(e):
+                flt['q'] = e.value or ''
+                jobs_list.refresh()
+
+            def _set_mode(e):
+                flt['mode'] = e.value or 'all'
+                jobs_list.refresh()
+
+            ui.input('Search', placeholder='model / project / memo') \
+                .props('dense clearable').style('min-width:220px').on('update:model-value', _set_q)
+            ui.select(['all'] + _MODES, value='all', label='Mode') \
+                .props('dense').style('min-width:150px').on('update:model-value', _set_mode)
+
         @ui.refreshable
         def jobs_list():
             try:
-                jobs = client().list_jobs()
+                jobs = filter_jobs(client().list_jobs(), flt['q'], flt['mode'])
             except Exception as exc:
                 ui.label(f'Cannot load jobs: {exc}').classes('text-negative')
                 return
             if not jobs:
-                ui.label('No jobs yet.').classes('text-caption text-grey')
+                ui.label('No jobs match.').classes('text-caption text-grey')
                 return
             with ui.list().props('bordered separator').classes('w-full'):
                 for job in jobs:
@@ -200,13 +229,26 @@ def _job_row(job: dict):
         with ui.item_section().props('avatar'):
             ui.badge(str(jid)).props(f'color={color}')
         with ui.item_section():
-            ui.item_label(f'{job["mode"]}  ·  {job.get("model_name") or "—"}')
+            proj = job.get('project')
+            head = f'{job["mode"]}  ·  {job.get("model_name") or "—"}'
+            if proj:
+                head += f'  ·  📁 {proj}'
+            ui.item_label(head)
             sub = status
             if frac is not None and prog:
                 sub = f'{status} · {prog["done"]:,}/{prog["total"]:,} ({frac:.0%})'
             elif job.get('error_message') and status == 'failed':
                 sub = f'{status} · {job["error_message"].splitlines()[0][:80]}'
             ui.item_label(sub).props('caption')
+
+            def _save_memo(e, j=jid):
+                try:
+                    client().set_memo(j, e.value or '')
+                except Exception as exc:
+                    ui.notify(f'Memo save failed: {exc}', type='negative')
+            ui.input('memo', value=job.get('memo') or '') \
+                .props('dense borderless').classes('text-caption') \
+                .on('blur', _save_memo).on('keydown.enter', _save_memo)
         with ui.item_section().props('side'):
             with ui.row().classes('q-gutter-xs'):
                 ui.button(icon='open_in_new', on_click=lambda j=jid: ui.navigate.to(f'/jobs/{j}')) \

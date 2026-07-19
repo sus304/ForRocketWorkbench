@@ -204,3 +204,33 @@ def test_enqueued_at_is_monotonic_for_fifo(store):
         claimed.append(j.id)
         store.mark_completed(j.id, result_dir="/x")
     assert claimed == ids
+
+
+def test_memo_and_project_columns(tmp_path):
+    s = JobStore(tmp_path / "jobs.db")
+    jid = s.create_preparing(mode="montecarlo", project="rocket-a")
+    s.set_memo(jid, "sigma_thrust=5%, resonance check")
+    job = s.get(jid)
+    assert job.project == "rocket-a"
+    assert job.memo == "sigma_thrust=5%, resonance check"
+    s.close()
+
+
+def test_migrate_adds_columns_to_legacy_db(tmp_path):
+    # A jobs.db from before project/memo existed: it has every other column, just not these two.
+    import sqlite3
+    p = tmp_path / "jobs.db"
+    con = sqlite3.connect(p)
+    con.execute(
+        "CREATE TABLE jobs (id INTEGER PRIMARY KEY, mode TEXT, model_name TEXT, status TEXT, "
+        "use_max_thread INTEGER, enqueued_at TEXT, started_at TEXT, finished_at TEXT, "
+        "work_dir TEXT, result_dir TEXT, input_ref TEXT, input_snapshot TEXT, summary TEXT, "
+        "error_message TEXT)")
+    con.execute("INSERT INTO jobs (mode, status, enqueued_at) "
+                "VALUES ('trajectory','completed','2026-01-01 00:00:00')")
+    con.commit(); con.close()
+    s = JobStore(p)  # _migrate() must ALTER in project/memo
+    assert s.get(1).project == "" and s.get(1).memo == ""
+    s.set_memo(1, "added later")
+    assert s.get(1).memo == "added later"
+    s.close()
