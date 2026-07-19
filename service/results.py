@@ -161,17 +161,73 @@ def result_meta(result_dir: str, mode: str) -> dict:
     cases = sorted({log["case"] for log in logs})
     phases = sorted({log["phase"] for log in logs if log["kind"] == "flight"})
     iip_available = any(log["kind"] == "iip" for log in logs)
+    # Per-phase real case numbers so the UI can list actual cases (skips/missing phases leave
+    # gaps), instead of synthesising id:0..N-1 which would point at non-existent cases (review N-8).
+    cases_by_phase: dict = {}
+    for log in logs:
+        if log["kind"] == "flight":
+            cases_by_phase.setdefault(log["phase"], set()).add(log["case"])
+    cases_by_phase = {ph: sorted(nums) for ph, nums in cases_by_phase.items()}
     return {
         "mode": mode,
         "tables": available_tables(result_dir),
         "case_count": len(cases),
         "phases": phases,
+        "cases_by_phase": cases_by_phase,
         "kinds": sorted({log["kind"] for log in logs}) or ["flight"],
         "flight_columns": _flight_columns(logs),
         "metrics_columns": _metrics_columns(result_dir),
         "iip_available": iip_available,
+        "kml": sorted(list_kml(result_dir).keys()),
         "summaries": [os.path.basename(p) for p in _summary_paths(rd)],
     }
+
+
+# ── MC dispersion KML (for browser download and external 3D viewers) ────────────
+# Filenames (post_montecarlo/post_kml, prefix in {'', 'decent', 'ballistic'}):
+#   envelope: {prefix}_impact_3sigma_envelop.kml
+#   ellipse : {prefix}_ellipse_impact_3sigma_envelop.kml  ('' prefix -> ellipse_impact_...)
+#   points  : {prefix}_impact_points.kml
+# envelope and ellipse share the same suffix, so the discriminator is the 'ellipse' token, not the
+# suffix (review N-7). Logical name = "{scenario}_{kind}" (scenario '' -> just kind).
+_ENV_SUFFIX = "_impact_3sigma_envelop.kml"
+_PTS_SUFFIX = "_impact_points.kml"
+
+
+def _classify_kml(fname: str):
+    if fname.endswith(_PTS_SUFFIX):
+        return fname[:-len(_PTS_SUFFIX)], "points"
+    if fname.endswith(_ENV_SUFFIX):
+        stem = fname[:-len(_ENV_SUFFIX)]
+        if "ellipse" in stem:
+            scen = stem.replace("_ellipse", "").replace("ellipse", "")
+            return scen, "ellipse"
+        return stem, "envelope"
+    return None, None
+
+
+def list_kml(result_dir: str) -> dict:
+    """Discover MC dispersion KML files as {logical_name: filename}."""
+    rd = _require_dir(result_dir)
+    out: dict = {}
+    for f in sorted(os.listdir(rd)):
+        if not f.endswith(".kml"):
+            continue
+        scen, kind = _classify_kml(f)
+        if kind is None:
+            continue
+        out[f"{scen}_{kind}" if scen else kind] = f
+    return out
+
+
+def kml_path(result_dir: str, name: str) -> Path:
+    """Resolve a logical KML name to a path, rejecting anything not discovered (no path from
+    the parameter is joined to the FS; only the discovered filename is used)."""
+    catalog = list_kml(result_dir)
+    fn = catalog.get(name)
+    if fn is None:
+        raise ResultError(f"unknown kml: {name}")
+    return Path(result_dir) / fn
 
 
 def _summary_paths(rd: Path) -> List[str]:

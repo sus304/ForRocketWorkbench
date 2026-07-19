@@ -285,6 +285,19 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
             return _zip_logs_response(job_id, ex["logs"])
         raise HTTPException(422, f"unknown format: {format}")
 
+    @app.get("/jobs/{job_id}/result/kml", dependencies=auth)
+    def result_kml(job_id: int, name: str = Query(...)):
+        rd, _ = resolve_result_dir(job_id)
+        try:
+            path = results.kml_path(rd, name)
+        except ResultError as e:
+            raise result_error(e)
+        if not path.is_file():
+            raise HTTPException(410, "kml no longer available")
+        return StreamingResponse(
+            io.BytesIO(path.read_bytes()), media_type="application/vnd.google-earth.kml+xml",
+            headers=_attachment(f"job{job_id}_{name}.kml"))
+
     @app.get("/jobs/{job_id}/result/plots/{kind}", dependencies=auth)
     def result_plot(job_id: int, kind: str, format: str = Query("png"),
                     select: Optional[str] = Query(None), column: Optional[str] = Query(None),

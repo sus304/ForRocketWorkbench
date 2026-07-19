@@ -156,6 +156,19 @@ def test_unknown_job_is_404(client):
     assert client.get("/jobs/9999/result/meta", headers=AUTH).status_code == 404
 
 
+def test_kml_route(client, store, worker):
+    jid = _fabricate_mc(store, worker)
+    wd = worker.run_dir_for(jid) / "work_montecarlo"
+    (wd / "decent_impact_points.kml").write_text("<kml>points</kml>")
+    (wd / "decent_ellipse_impact_3sigma_envelop.kml").write_text("<kml>ellipse</kml>")
+    meta = client.get(f"/jobs/{jid}/result/meta", headers=AUTH).json()
+    assert "decent_points" in meta["kml"] and "decent_ellipse" in meta["kml"]
+    r = client.get(f"/jobs/{jid}/result/kml", params={"name": "decent_ellipse"}, headers=AUTH)
+    assert r.status_code == 200 and r.content == b"<kml>ellipse</kml>"
+    assert client.get(f"/jobs/{jid}/result/kml",
+                      params={"name": "nope"}, headers=AUTH).status_code == 422
+
+
 def test_empty_token_fails_closed(store, worker):
     """An empty service token must reject every request, not authenticate 'Bearer ' (review Y15)."""
     c = TestClient(create_app(store, worker, ""))

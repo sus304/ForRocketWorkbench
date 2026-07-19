@@ -111,6 +111,42 @@ def test_summaries_parsed(mc_work_dir):
     assert "apogee" in joined
 
 
+# ── KML discovery (design §9 / review N-7) ──────────────────────────────────
+
+def test_kml_classify_ellipse_not_confused_with_envelope():
+    # envelope and ellipse share the _impact_3sigma_envelop.kml suffix; the 'ellipse' token
+    # is the only discriminator.
+    assert results._classify_kml("decent_impact_3sigma_envelop.kml") == ("decent", "envelope")
+    assert results._classify_kml("decent_ellipse_impact_3sigma_envelop.kml") == ("decent", "ellipse")
+    assert results._classify_kml("_impact_3sigma_envelop.kml") == ("", "envelope")
+    assert results._classify_kml("ellipse_impact_3sigma_envelop.kml") == ("", "ellipse")
+    assert results._classify_kml("decent_impact_points.kml") == ("decent", "points")
+    assert results._classify_kml("something_else.kml") == (None, None)
+
+
+def test_list_kml_and_path(tmp_path):
+    wd = tmp_path / "work_montecarlo"
+    wd.mkdir()
+    for fn in ("decent_impact_3sigma_envelop.kml", "decent_ellipse_impact_3sigma_envelop.kml",
+               "decent_impact_points.kml", "ballistic_impact_points.kml"):
+        (wd / fn).write_text("<kml/>")
+    cat = results.list_kml(str(wd))
+    assert cat["decent_envelope"] == "decent_impact_3sigma_envelop.kml"
+    assert cat["decent_ellipse"] == "decent_ellipse_impact_3sigma_envelop.kml"
+    assert cat["decent_points"] == "decent_impact_points.kml"
+    assert cat["ballistic_points"] == "ballistic_impact_points.kml"
+    assert results.kml_path(str(wd), "decent_ellipse").name == "decent_ellipse_impact_3sigma_envelop.kml"
+    with pytest.raises(results.ResultError):
+        results.kml_path(str(wd), "../../etc/passwd")
+
+
+def test_meta_cases_by_phase(mc_work_dir):
+    meta = results.result_meta(str(mc_work_dir), "montecarlo")
+    assert sorted(meta["cases_by_phase"]["stage1"]) == [0, 1, 2, 3]
+    assert sorted(meta["cases_by_phase"]["ballistic"]) == [0, 1, 2, 3]
+    assert "kml" in meta
+
+
 # ── extract (design §4.2) ───────────────────────────────────────────────────
 
 def test_extract_columns_and_phase(mc_work_dir):
