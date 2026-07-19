@@ -15,7 +15,7 @@ import json
 
 from nicegui import ui
 
-from web.service_ui import config, config_edit
+from web.service_ui import config, config_edit, config_forms
 from web.service_ui.layout import service_header
 
 _MODES = ['trajectory', 'area', 'montecarlo', 'sensitivity']
@@ -150,6 +150,42 @@ def _delete(name: str, listing):
     dlg.open()
 
 
+# Show the typed-form files in the runner's natural order first, then anything else.
+_FILE_ORDER = ['config_solver.json', 'param_list_stage1.json', 'param_rocket.json',
+               'param_engine.json', 'sequence_of_event.json', 'config_area.json',
+               'config_montecarlo.json', 'config_sensitivity.json']
+
+
+def _ordered_files(files: dict) -> list:
+    known = [f for f in _FILE_ORDER if f in files]
+    extra = [f for f in files if f not in _FILE_ORDER]
+    return known + extra
+
+
+def _generic_form(content, container) -> 'callable':
+    """Fallback editor for files without a typed form: one typed leaf per scalar. Returns a
+    collect() closure so the save path is uniform with the typed forms."""
+    inputs: dict = {}
+    with container:
+        flat = config_edit.flatten_config(content)
+        if not flat:
+            ui.label('(empty file)').classes('text-caption text-grey')
+        with ui.grid(columns=2).classes('w-full q-col-gutter-sm'):
+            for path, val in flat.items():
+                if isinstance(val, bool):
+                    el = ui.checkbox(path, value=val)
+                elif isinstance(val, (int, float)):
+                    el = ui.number(path, value=val).props('dense')
+                else:
+                    el = ui.input(path, value='' if val is None else str(val)).props('dense')
+                inputs[path] = el
+
+    def collect() -> dict:
+        return config_edit.apply_edits(content, {p: el.value for p, el in inputs.items()})
+
+    return collect
+
+
 @ui.page('/projects/{name}/edit')
 def project_edit_page(name: str):
     service_header(active='Projects')
@@ -165,33 +201,57 @@ def project_edit_page(name: str):
             return
 
         state = {'etag': cfg['etag']}
-        inputs: dict = {}  # (filename, path) -> ui element
+        files = cfg['files']
+        # Per file: {'tabs', 'form_collect', 'json_area', 'content'}. On save, the active tab is
+        # the source of truth — Form uses the typed/generic collect(), JSON parses the textarea.
+        panels: dict = {}
 
-        for fname, content in cfg['files'].items():
-            with ui.expansion(fname, icon='description').classes('w-full'):
-                flat = config_edit.flatten_config(content)
-                with ui.grid(columns=2).classes('w-full q-col-gutter-sm'):
-                    for path, val in flat.items():
-                        if isinstance(val, bool):
-                            el = ui.checkbox(path, value=val)
-                        elif isinstance(val, (int, float)):
-                            el = ui.number(path, value=val).props('dense')
+        for fname in _ordered_files(files):
+            content = files[fname]
+            typed = config_forms.has_form(fname)
+            icon = 'tune' if typed else 'description'
+            with ui.expansion(fname, icon=icon, value=typed).classes('w-full'):
+                with ui.tabs() as tabs:
+                    ui.tab('Form')
+                    ui.tab('JSON')
+                tabs.value = 'Form'
+                with ui.tab_panels(tabs, value='Form').classes('w-full'):
+                    with ui.tab_panel('Form'):
+                        form_con = ui.column().classes('w-full q-gutter-sm')
+                        if typed:
+                            collect = config_forms.build_form(fname, content, form_con, siblings=files)
                         else:
-                            el = ui.input(path, value='' if val is None else str(val)).props('dense')
-                        inputs[(fname, path)] = el
+                            collect = _generic_form(content, form_con)
+                    with ui.tab_panel('JSON'):
+                        area = ui.textarea(value=json.dumps(content, indent=4, ensure_ascii=False)) \
+                            .classes('w-full').style('font-family:monospace; min-height:320px;')
+                panels[fname] = {'tabs': tabs, 'form_collect': collect, 'json_area': area,
+                                 'content': content}
 
         def _save():
             files_out = {}
-            for fname, content in cfg['files'].items():
-                edits = {path: inputs[(fname, path)].value
-                         for (f, path) in inputs if f == fname}
-                files_out[fname] = config_edit.apply_edits(content, edits)
+            for fname, panel in panels.items():
+                if panel['tabs'].value == 'JSON':
+                    try:
+                        files_out[fname] = json.loads(panel['json_area'].value)
+                    except json.JSONDecodeError as exc:
+                        ui.notify(f'{fname}: JSON parse error — {exc}', type='negative', multi_line=True)
+                        return
+                else:
+                    files_out[fname] = panel['form_collect']()
             try:
                 res = _client().put_project_config(name, files_out, if_match=state['etag'])
                 state['etag'] = res['etag']
+                # Reflect the saved state into the JSON tabs so a subsequent JSON-tab save is clean.
+                for fname, panel in panels.items():
+                    panel['json_area'].set_value(
+                        json.dumps(files_out[fname], indent=4, ensure_ascii=False))
                 ui.notify('Saved.', type='positive')
             except Exception as exc:
                 ui.notify(f'Save failed (reload if it changed elsewhere): {exc}',
                           type='negative', multi_line=True)
 
-        ui.button('Save', icon='save', on_click=_save).props('color=primary').classes('q-mt-md')
+        with ui.row().classes('q-mt-md q-gutter-sm items-center'):
+            ui.button('Save', icon='save', on_click=_save).props('color=primary')
+            ui.label('Edit in Form or JSON per file; the tab you leave open is what gets saved.') \
+                .classes('text-caption text-grey')

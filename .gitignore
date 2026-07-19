@@ -157,6 +157,7 @@ projects/example/work_sensitivity*/
 .claude/
 docs/*.md
 docs/spec_web_gui.html
+docs/workbench-dashboard.html
 !docs/manual.html
 ref/
 cmd_memo.txt
@@ -165,6 +166,9 @@ cmd_memo.txt
 # transient run output is ignored.
 tests/**/__pycache__/
 tests/.pytest_cache/
+
+# NiceGUI runtime storage (created when the UI or its headless form tests run)
+.nicegui/
 
 # Compute service runtime data (store, run tree, local token) — local only
 service_data/
