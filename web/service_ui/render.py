@@ -192,9 +192,19 @@ def table_to_df(table: dict) -> pd.DataFrame:
 
 
 def extract_log_to_df(log: dict) -> pd.DataFrame:
-    """One /result/extract log entry -> DataFrame, numeric columns coerced for plotting."""
+    """One /result/extract log entry -> DataFrame, numeric columns coerced for plotting.
+
+    The API already serialises values as native numbers/None, so a plain frame usually has numeric
+    dtypes; we only coerce object columns (e.g. numbers that arrived as strings). We do NOT use
+    pd.to_numeric(errors='ignore') — that value was removed in pandas >= 2.2 (the VM runs a newer
+    pandas than the test env) and raises 'invalid error value specified'."""
     df = pd.DataFrame(log.get('rows', []), columns=log.get('columns', []))
-    return df.apply(pd.to_numeric, errors='ignore')
+    for col in df.columns:
+        if df[col].dtype == object:
+            coerced = pd.to_numeric(df[col], errors='coerce')
+            if coerced.notna().any():   # keep genuinely non-numeric columns as-is
+                df[col] = coerced
+    return df
 
 
 def summary_items_from_api(raw: list) -> list:
