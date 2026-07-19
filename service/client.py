@@ -45,6 +45,18 @@ class ServiceClient:
         r.raise_for_status()
         return r.json()
 
+    def submit_project(self, project: str, mode: str, use_max_thread: bool = False) -> dict:
+        """Submit a run from a server-stored project (no upload; the service packs the closure
+        from its own store). The UI-refresh main submit path."""
+        r = self.s.post(
+            self._url("/jobs"),
+            headers=self.headers,
+            data={"mode": mode, "project": project,
+                  "use_max_thread": "true" if use_max_thread else "false"},
+        )
+        r.raise_for_status()
+        return r.json()
+
     def status(self, job_id: int) -> dict:
         r = self.s.get(self._url(f"/jobs/{job_id}"), headers=self.headers)
         r.raise_for_status()

@@ -26,7 +26,7 @@ from service.projects import (
 )
 from service.results import ResultError, ResultsGone
 from service.store import JobStore, PREPARING, QUEUED, RUNNING, TERMINAL_STATUSES
-from service.uploads import pack_result, safe_extract, UploadError
+from service.uploads import pack_closure, pack_result, safe_extract, UploadError
 from service.worker import Worker
 
 _MODES = {"trajectory", "area", "montecarlo", "sensitivity"}
@@ -172,13 +172,21 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
         mode: str = Form(...),
         use_max_thread: bool = Form(False),
         model_name: str = Form(""),
-        payload: UploadFile = File(...),
+        project: Optional[str] = Form(None),
+        payload: Optional[UploadFile] = File(None),
     ):
+        """Submit a run either from a server-stored project (`project`, the UI-refresh main path)
+        or from an uploaded closure (`payload`, the `wb submit` path). For a stored project the
+        closure is packed from the trusted store and staged into the per-job run_dir *before*
+        the job becomes queued, so later edits/deletes never reach a queued/running job
+        (design ui_refresh §5, review N-2)."""
         if mode not in _MODES:
             raise HTTPException(400, f"unknown mode: {mode}")
+        if project:
+            return await _submit_from_project(project, mode, use_max_thread)
+        if payload is None:
+            raise HTTPException(400, "provide either project or payload")
         data = await payload.read()
-        # create the job in `preparing` so the worker cannot claim it before its inputs are
-        # staged (design §5); only mark_queued() makes it runnable.
         job_id = store.create_preparing(mode=mode, model_name=model_name,
                                         use_max_thread=use_max_thread)
         run_dir = worker.run_dir_for(job_id)
@@ -187,6 +195,30 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
         except UploadError as e:
             store.mark_failed(job_id, f"upload rejected: {e}")
             raise HTTPException(400, f"upload rejected: {e}")
+        store.mark_queued(job_id)
+        return {"id": job_id, "status": QUEUED}
+
+    async def _submit_from_project(project: str, mode: str, use_max_thread: bool):
+        from fastapi.concurrency import run_in_threadpool
+        try:
+            proj_dir = projects.project_dir(worker.data_root, project)
+        except ProjectError as e:
+            raise project_error(e)
+        if not proj_dir.is_dir():
+            raise HTTPException(404, f"project not found: {project}")
+        model_name = _model_id_of(proj_dir)
+        job_id = store.create_preparing(mode=mode, model_name=model_name,
+                                        use_max_thread=use_max_thread, project=project)
+        run_dir = worker.run_dir_for(job_id)
+
+        def _stage():
+            blob = pack_closure(proj_dir, mode)   # trusted-store pack (N-2 confirmed snapshot)
+            safe_extract(blob, run_dir)
+        try:
+            await run_in_threadpool(_stage)
+        except (UploadError, OSError, KeyError, ValueError) as e:
+            store.mark_failed(job_id, f"closure build failed: {e}")
+            raise HTTPException(422, f"closure build failed: {e}")
         store.mark_queued(job_id)
         return {"id": job_id, "status": QUEUED}
 
@@ -417,6 +449,13 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
                                  headers=_attachment(f"{name}.zip"))
 
     return app
+
+
+def _model_id_of(proj_dir) -> str:
+    try:
+        return json.loads((proj_dir / "config_solver.json").read_text()).get("Model ID", "") or ""
+    except (OSError, ValueError):
+        return ""
 
 
 def _log_to_csv(log: dict) -> str:
