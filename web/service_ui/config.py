@@ -66,6 +66,14 @@ def service_url() -> str:
     return os.environ.get("WB_SERVICE_URL", DEFAULT_URL)
 
 
+def submit_enabled() -> bool:
+    """Whether the /jobs page shows the project-submit form. Disabled on the VM-resident server
+    (app_server sets WB_UI_SUBMIT_DISABLED): the browser has no access to the operator's local
+    projects/ there, so ③ submits via `wb submit` until the browser-upload path lands (design
+    §3.3 / review Y12). Disabling it also keeps the server UI free of the projects DB dependency."""
+    return os.environ.get("WB_UI_SUBMIT_DISABLED", "").lower() not in ("1", "true", "yes")
+
+
 def is_local_url(url: str) -> bool:
     """True if the URL points at the loopback interface — i.e. the service should be spawned
     and supervised locally (②). A tailnet/remote URL (③) is owned by systemd; the GUI only

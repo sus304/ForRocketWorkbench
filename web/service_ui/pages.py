@@ -21,8 +21,10 @@ from typing import Optional
 from nicegui import ui
 
 from web.pages.shared import build_header
-from web.services.project_service import scan_projects, projects_dir, get_model_id
 from web.service_ui import config, render
+# NOTE: web.services.project_service (which pulls in web.db) is imported lazily inside the
+# submit-form branch only. The VM-resident server disables that form (config.submit_enabled()
+# is False), so app_server never imports the DB layer or opens workbench.db (design §3.1.2).
 
 _MODES = ['trajectory', 'area', 'montecarlo', 'sensitivity']
 _ACTIVE_STATUSES = {'preparing', 'queued', 'running'}
@@ -99,36 +101,47 @@ def jobs_page():
         ui.label('Compute Jobs').classes('text-h6 q-mb-sm')
 
         # ── Submit form ───────────────────────────────────────────────────────
-        projects = scan_projects()
-        with ui.card().classes('w-full q-mb-md'):
-            ui.label('Submit a run').classes('text-subtitle2 q-mb-sm')
-            with ui.row().classes('items-center q-gutter-md w-full'):
-                project_select = ui.select(projects, label='Project',
-                                           value=projects[0] if projects else None) \
-                    .props('dense outlined').style('min-width:220px')
-                mode_select = ui.select(_MODES, label='Mode', value='trajectory') \
-                    .props('dense outlined').style('min-width:160px')
-                max_thread = ui.checkbox('Max threads (-X)')
-                submit_btn = ui.button('Submit', icon='send').props('color=primary')
+        # On the VM-resident server the form is disabled: the browser cannot reach the operator's
+        # local projects/, so ③ submits via `wb submit` (design §3.3 / review Y12). Skipping it
+        # also avoids the projects-DB dependency on the server, which never runs init_db.
+        if not config.submit_enabled():
+            with ui.card().classes('w-full q-mb-md'):
+                ui.label('Submit a run').classes('text-subtitle2 q-mb-xs')
+                ui.label('Submit from the CLI: `wb submit <project> <mode>`. '
+                         'Browser upload arrives with the UI refresh.') \
+                    .classes('text-caption text-grey')
+        else:
+            from web.services.project_service import scan_projects, projects_dir, get_model_id
+            projects = scan_projects()
+            with ui.card().classes('w-full q-mb-md'):
+                ui.label('Submit a run').classes('text-subtitle2 q-mb-sm')
+                with ui.row().classes('items-center q-gutter-md w-full'):
+                    project_select = ui.select(projects, label='Project',
+                                               value=projects[0] if projects else None) \
+                        .props('dense outlined').style('min-width:220px')
+                    mode_select = ui.select(_MODES, label='Mode', value='trajectory') \
+                        .props('dense outlined').style('min-width:160px')
+                    max_thread = ui.checkbox('Max threads (-X)')
+                    submit_btn = ui.button('Submit', icon='send').props('color=primary')
 
-            def _submit():
-                proj = project_select.value
-                mode = mode_select.value
-                if not proj:
-                    ui.notify('Select a project first.', type='warning')
-                    return
-                project_dir = projects_dir() / proj
-                try:
-                    res = client().submit(project_dir, mode,
-                                          model_name=get_model_id(proj),
-                                          use_max_thread=max_thread.value)
-                except Exception as exc:  # service unreachable / upload rejected
-                    ui.notify(f'Submit failed: {exc}', type='negative', multi_line=True)
-                    return
-                ui.notify(f'Job #{res["id"]} queued ({mode}).', type='positive')
-                jobs_list.refresh()
+                def _submit():
+                    proj = project_select.value
+                    mode = mode_select.value
+                    if not proj:
+                        ui.notify('Select a project first.', type='warning')
+                        return
+                    project_dir = projects_dir() / proj
+                    try:
+                        res = client().submit(project_dir, mode,
+                                              model_name=get_model_id(proj),
+                                              use_max_thread=max_thread.value)
+                    except Exception as exc:  # service unreachable / upload rejected
+                        ui.notify(f'Submit failed: {exc}', type='negative', multi_line=True)
+                        return
+                    ui.notify(f'Job #{res["id"]} queued ({mode}).', type='positive')
+                    jobs_list.refresh()
 
-            submit_btn.on_click(lambda: _submit())
+                submit_btn.on_click(lambda: _submit())
 
         # ── Health strip ──────────────────────────────────────────────────────
         @ui.refreshable
