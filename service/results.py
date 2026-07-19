@@ -293,7 +293,45 @@ def resolve_select(result_dir: str, select: str) -> List[dict]:
         return [{"case": n} for n in nums]
     if select.startswith("top:") or select.startswith("bottom:"):
         return _resolve_ranked(result_dir, select)
+    if select.startswith("filter:"):
+        return _resolve_filter(result_dir, select)
     raise ResultError(f"unknown select expression: {select}")
+
+
+_FILTER_OPS = ("<=", ">=", "<", ">")
+
+
+def _resolve_filter(result_dir: str, select: str) -> List[dict]:
+    """filter:<metric><op><value>[:<phase>] -> all cases matching the threshold (design §8).
+
+    No pandas query/eval: the metric is checked against the table columns, the value is parsed as
+    a float, the operator is whitelisted, and a boolean mask is applied (no string interpolation
+    into an eval surface; review N-3/SEC)."""
+    body = select[len("filter:"):]
+    segs = body.split(":")
+    expr = segs[0]
+    phase = segs[1] if len(segs) >= 2 and segs[1] else "stage1"
+    if phase not in _PHASES:
+        raise ResultError(f"unknown phase in selector: {phase}")
+    op = next((o for o in _FILTER_OPS if o in expr), None)
+    if op is None:
+        raise ResultError(f"malformed filter (need one of {_FILTER_OPS}): {select}")
+    metric, _, value_s = expr.partition(op)
+    metric = metric.strip()
+    try:
+        value = float(value_s.strip())
+    except ValueError:
+        raise ResultError(f"filter value not numeric: {select}")
+    df = pd.read_csv(_table_path(result_dir, _metric_table_for_phase(result_dir, phase)))
+    if "case" not in df.columns:
+        raise ResultError("table has no 'case' column")
+    if metric not in df.columns:
+        raise ResultError(f"unknown metric: {metric}")
+    col = pd.to_numeric(df[metric], errors="coerce")
+    mask = {"<": col < value, "<=": col <= value,
+            ">": col > value, ">=": col >= value}[op]
+    hit = df[mask.fillna(False)]
+    return [{"case": int(r["case"]), "metric": float(r[metric])} for _, r in hit.iterrows()]
 
 
 def _resolve_ranked(result_dir: str, select: str) -> List[dict]:

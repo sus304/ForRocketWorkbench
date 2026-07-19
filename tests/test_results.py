@@ -100,6 +100,24 @@ def test_resolve_select_errors(mc_work_dir):
         results.resolve_select(str(mc_work_dir), "garbage")
 
 
+def test_resolve_select_filter(mc_work_dir):
+    # stage1 downrange = 1000*(case+1): >2500 -> cases 2,3
+    hit = results.resolve_select(str(mc_work_dir), "filter:downrange_impact>2500:stage1")
+    assert sorted(r["case"] for r in hit) == [2, 3]
+    # ballistic downrange = 5000-500*case: <4000 -> cases 3 (3500) only... 5000,4500,4000,3500
+    hit_b = results.resolve_select(str(mc_work_dir), "filter:downrange_impact<4000:ballistic")
+    assert sorted(r["case"] for r in hit_b) == [3]
+    # default phase stage1
+    hit_d = results.resolve_select(str(mc_work_dir), "filter:downrange_impact<=2000")
+    assert sorted(r["case"] for r in hit_d) == [0, 1]
+
+
+def test_resolve_select_filter_errors(mc_work_dir):
+    for bad in ("filter:no_such_metric>1", "filter:downrange_impact#1", "filter:downrange_impact>abc"):
+        with pytest.raises(results.ResultError):
+            results.resolve_select(str(mc_work_dir), bad)
+
+
 def test_missing_work_dir_raises_gone(tmp_path):
     with pytest.raises(results.ResultsGone):
         results.result_meta(str(tmp_path / "does_not_exist"), "montecarlo")

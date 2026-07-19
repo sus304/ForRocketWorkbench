@@ -212,6 +212,20 @@ def summary_items_from_api(raw: list) -> list:
     return [(d.get('key', ''), d.get('value', ''), d.get('unit', '')) for d in (raw or [])]
 
 
+# Above this many cases the Case dropdown is not pre-filled with every case; the user narrows
+# with a selection expression instead (design §8, review N-8/N-3).
+CASE_ENUM_CAP = 200
+
+
+def quickpick_expr(kind: str, phase: str) -> str:
+    """Selection expression for a quick-pick chip. Pure/testable (design §8)."""
+    if kind == 'nominal':
+        return 'nominal'
+    if kind == 'farthest':
+        return f'top:10:downrange_impact:{phase}'
+    raise ValueError(f'unknown quickpick: {kind}')
+
+
 # ── Chart helpers ─────────────────────────────────────────────────────────────
 
 def _auto_km(col: str, values: list) -> tuple[list, str]:
@@ -625,25 +639,55 @@ def _build_flight_section(client, job_id, meta: dict, key, summary_items: list) 
     and echarts light. Re-selecting re-fetches and redraws only this section.
     """
     phases = meta.get('phases') or ['stage1']
+    cases_by_phase = meta.get('cases_by_phase') or {}
+    case_count = int(meta.get('case_count') or 0)
+    small = 0 < case_count <= CASE_ENUM_CAP
     state: dict = {'select': 'nominal', 'phase': phases[0], 'case': None}
 
     with ui.card().classes('w-full q-mb-md'):
         ui.label('Flight Case').classes('text-subtitle2 q-mb-xs')
         with ui.row().classes('items-center q-gutter-sm'):
             sel_in = ui.input('Selection', value='nominal',
-                              placeholder='nominal | id:0,3 | top:5:downrange_impact') \
-                .props('dense').style('min-width:280px')
-            phase_sel = ui.select(phases, value=state['phase'], label='Phase').props('dense') \
+                              placeholder='nominal | id:0,3 | top:5:downrange_impact | filter:min_sg<1') \
+                .props('dense').style('min-width:300px')
+            phase_sel = ui.select(phases, value=state['phase'], label='Phase',
+                                  on_change=lambda _: _on_phase()).props('dense') \
                 if len(phases) > 1 else None
             case_sel = ui.select([], label='Case').props('dense').style('min-width:120px')
             ui.button('Apply', on_click=lambda: _resolve_cases())
+        with ui.row().classes('q-gutter-xs q-mt-xs'):
+            ui.label('Quick:').classes('text-caption text-grey q-my-auto')
+            ui.button('Nominal', on_click=lambda: _quick('nominal')).props('dense flat')
+            ui.button('Farthest 10', on_click=lambda: _quick('farthest')).props('dense flat')
+        # For small runs the Case dropdown lists every real case (from meta.cases_by_phase); the
+        # selection expression is for narrowing large runs (design §8 / review N-8).
 
     cards = ui.column().classes('w-full')
 
+    def _current_phase():
+        return phase_sel.value if phase_sel is not None else state['phase']
+
+    def _enumerate_small():
+        # Populate the dropdown from the real per-phase case numbers, no server round-trip.
+        cases = list(cases_by_phase.get(_current_phase(), []))
+        state['phase'] = _current_phase()
+        case_sel.set_options(cases, value=cases[0] if cases else None)
+        state['case'] = cases[0] if cases else None
+        _draw_case()
+
+    def _on_phase():
+        if small:
+            _enumerate_small()
+        else:
+            _resolve_cases()
+
+    def _quick(kind):
+        sel_in.value = quickpick_expr(kind, _current_phase())
+        _resolve_cases()
+
     def _resolve_cases():
         state['select'] = (sel_in.value or 'nominal').strip()
-        if phase_sel is not None:
-            state['phase'] = phase_sel.value
+        state['phase'] = _current_phase()
         try:
             resolved = client.result_cases(job_id, state['select'])
         except Exception as exc:
@@ -686,7 +730,7 @@ def _build_flight_section(client, job_id, meta: dict, key, summary_items: list) 
                 ui.label(f'Graph error: {exc}').classes('text-negative')
 
     case_sel.on('update:model-value', lambda _: _draw_case())
-    _resolve_cases()
+    _enumerate_small() if small else _resolve_cases()
 
 
 def _build_download_row(client, job_id, state, case) -> None:

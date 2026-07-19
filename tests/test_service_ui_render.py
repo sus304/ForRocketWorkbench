@@ -156,3 +156,11 @@ def test_summary_items_from_api_shape():
 def test_mc_table_labels_cover_result_tables():
     assert render._MC_TABLE_LABELS["ballistic_result_table"] == "Ballistic"
     assert render._MC_TABLE_LABELS["result_table"] == ""
+
+
+def test_quickpick_expr():
+    assert render.quickpick_expr("nominal", "stage1") == "nominal"
+    assert render.quickpick_expr("farthest", "ballistic") == "top:10:downrange_impact:ballistic"
+    import pytest
+    with pytest.raises(ValueError):
+        render.quickpick_expr("bogus", "stage1")
