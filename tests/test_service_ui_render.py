@@ -129,3 +129,30 @@ def test_compute_impact_ellipses_shapes():
 def test_compute_impact_ellipses_too_few_points():
     east, north, _, _, ne_ell, ll_ell = render.compute_impact_ellipses([35.0, 35.1], [139.0, 139.1])
     assert len(east) == 2 and ne_ell == [] and ll_ell == []
+
+
+# --- API response converters (design §6) -------------------------------------
+
+def test_table_to_df_roundtrip():
+    df = render.table_to_df({"columns": ["case", "downrange_impact"],
+                             "rows": [[0, 1000.0], [1, 2000.0]]})
+    assert list(df.columns) == ["case", "downrange_impact"]
+    assert df["downrange_impact"].tolist() == [1000.0, 2000.0]
+
+
+def test_extract_log_to_df_coerces_numeric():
+    df = render.extract_log_to_df({"columns": ["Time [s]", "Altitude [m]"],
+                                   "rows": [["0.0", "100"], ["0.5", "110"]]})
+    assert df["Altitude [m]"].tolist() == [100, 110]
+    assert str(df["Time [s]"].dtype).startswith("float")
+
+
+def test_summary_items_from_api_shape():
+    items = render.summary_items_from_api([{"key": "apogee", "value": "3000", "unit": "[m]"}])
+    assert items == [("apogee", "3000", "[m]")]
+    assert render.summary_items_from_api(None) == []
+
+
+def test_mc_table_labels_cover_result_tables():
+    assert render._MC_TABLE_LABELS["ballistic_result_table"] == "Ballistic"
+    assert render._MC_TABLE_LABELS["result_table"] == ""

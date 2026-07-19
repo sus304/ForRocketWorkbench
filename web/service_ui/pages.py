@@ -248,7 +248,7 @@ def job_detail_page(job_id: int):
                 state['rendered_for'] = job_id
                 result_area.clear()
                 with result_area:
-                    render.render_result(job.get('result_dir') or '', job['mode'], job_id)
+                    render.render_result(client(), job_id, job['mode'], job_id)
             if terminal:
                 state['stop'] = True  # stop polling; page is static now
 

@@ -173,6 +173,35 @@ def find_mc_result_tables(result_dir: str) -> list[tuple[str, str]]:
             if os.path.isfile(os.path.join(result_dir, fn))]
 
 
+# ── API response -> DataFrame/items converters (design §6) ──────────────────────
+# The GUI sources result data through the service result API (service.client), not by reading
+# result_dir directly: decimation/limits are enforced once, server-side, and the mixed
+# topology (local UI -> remote service) keeps working (design §3.4). These pure converters turn
+# the JSON payloads back into the DataFrames/items the existing card builders already consume.
+
+_MC_TABLE_LABELS = {
+    'result_table': '',
+    'decent_result_table': 'Descent',
+    'ballistic_result_table': 'Ballistic',
+}
+
+
+def table_to_df(table: dict) -> pd.DataFrame:
+    """{'columns':[...], 'rows':[[...]]} -> DataFrame (as returned by /result/tables and extract)."""
+    return pd.DataFrame(table.get('rows', []), columns=table.get('columns', []))
+
+
+def extract_log_to_df(log: dict) -> pd.DataFrame:
+    """One /result/extract log entry -> DataFrame, numeric columns coerced for plotting."""
+    df = pd.DataFrame(log.get('rows', []), columns=log.get('columns', []))
+    return df.apply(pd.to_numeric, errors='ignore')
+
+
+def summary_items_from_api(raw: list) -> list:
+    """/result/summary items ([{key,value,unit}]) -> the (key, value, unit) tuples the cards use."""
+    return [(d.get('key', ''), d.get('value', ''), d.get('unit', '')) for d in (raw or [])]
+
+
 # ── Chart helpers ─────────────────────────────────────────────────────────────
 
 def _auto_km(col: str, values: list) -> tuple[list, str]:
@@ -533,120 +562,203 @@ def _sensitivity_linearity_opts(sens_row: 'pd.Series', cases_df: 'pd.DataFrame')
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
-def render_result(result_dir: str, mode: str, key) -> None:
-    """Render every result card for a completed job into the current NiceGUI context.
+def render_result(client, job_id, mode: str, key) -> None:
+    """Render every result card for a completed job, sourcing data from the service result API.
 
-    `result_dir` is a service work_dir (local for use case ②); `key` (the job id) makes DOM ids
-    unique. Mirrors the legacy result page's content, minus the Calculation-DB metadata/memo.
+    `client` is a service.client.ServiceClient; `key` (the job id) makes DOM ids unique. Replaces
+    the old local `result_dir` read so the same code serves ③ (UI on the VM) and the mixed
+    topology, and so flight-log data is decimated server-side before it reaches the browser
+    (design §3.4, §6). Mirrors the legacy result page's content, minus the Calculation-DB
+    metadata/memo.
     """
-    if not result_dir or not os.path.isdir(result_dir):
-        ui.label('No result directory available yet.').classes('text-caption text-grey')
+    try:
+        meta = client.result_meta(job_id)
+    except Exception as exc:
+        ui.label(f'No result available: {exc}').classes('text-caption text-grey')
         return
 
-    summary_files = find_summaries(result_dir)
-    summary_items: list[tuple[str, str, str]] = []
-    if summary_files:
-        summary_items = parse_summary(summary_files[0])
-        _build_summary_card(summary_files)
+    summary_items = summary_items_from_api(_safe(lambda: client.result_summary(job_id), []))
+    if summary_items:
+        _build_summary_card(summary_items)
 
     if mode == 'sensitivity':
-        _build_sensitivity_card(result_dir)
+        _build_sensitivity_card(client, job_id)
 
     if mode == 'montecarlo':
-        for mc_label, mc_path in find_mc_result_tables(result_dir):
+        for logical in meta.get('tables', []):
+            if not logical.endswith('result_table'):
+                continue
             try:
-                df_mc = pd.read_csv(mc_path)
-                _build_mc_card(df_mc, mc_label)
+                df_mc = table_to_df(client.result_table(job_id, logical))
+                _build_mc_card(df_mc, _MC_TABLE_LABELS.get(logical, ''))
             except Exception as exc:
                 with ui.card().classes('w-full q-mb-md'):
                     ui.label(f'MC stats error: {exc}').classes('text-negative text-caption')
 
-    csv_files = find_flight_logs(result_dir)
-    df: pd.DataFrame | None = None
-    if csv_files:
+    if 'flight' in meta.get('kinds', ['flight']):
+        _build_flight_section(client, job_id, meta, key, summary_items)
+
+
+def _safe(fn, default):
+    try:
+        return fn()
+    except Exception:
+        return default
+
+
+def _build_flight_section(client, job_id, meta: dict, key, summary_items: list) -> None:
+    """Case-selection UI + per-case flight-log cards (ground track, 3D, interactive graph).
+
+    A selection expression (nominal / id / top-bottom) resolves to a case list; the chosen case's
+    decimated flight log drives the cards. Document-quality overlays of many cases are produced by
+    the plots API instead (design §5); here one case is shown at a time to keep browser transfer
+    and echarts light. Re-selecting re-fetches and redraws only this section.
+    """
+    phases = meta.get('phases') or ['stage1']
+    state: dict = {'select': 'nominal', 'phase': phases[0], 'case': None}
+
+    with ui.card().classes('w-full q-mb-md'):
+        ui.label('Flight Case').classes('text-subtitle2 q-mb-xs')
+        with ui.row().classes('items-center q-gutter-sm'):
+            sel_in = ui.input('Selection', value='nominal',
+                              placeholder='nominal | id:0,3 | top:5:downrange_impact') \
+                .props('dense').style('min-width:280px')
+            phase_sel = ui.select(phases, value=state['phase'], label='Phase').props('dense') \
+                if len(phases) > 1 else None
+            case_sel = ui.select([], label='Case').props('dense').style('min-width:120px')
+            ui.button('Apply', on_click=lambda: _resolve_cases())
+
+    cards = ui.column().classes('w-full')
+
+    def _resolve_cases():
+        state['select'] = (sel_in.value or 'nominal').strip()
+        if phase_sel is not None:
+            state['phase'] = phase_sel.value
         try:
-            df = pd.read_csv(csv_files[0]).dropna(how='any', axis=1)
-        except Exception:
-            df = None
-
-    if df is not None and 'Latitude [deg]' in df.columns and 'Longitude [deg]' in df.columns:
-        _build_map_card(df, key, summary_items)
-
-    if df is not None and 'Latitude [deg]' in df.columns and 'Altitude [m]' in df.columns:
-        _build_cesium_card(df, summary_items, key)
-
-    if csv_files:
-        try:
-            _build_graph_card(csv_files, df)
+            resolved = client.result_cases(job_id, state['select'])
         except Exception as exc:
-            with ui.card().classes('w-full'):
+            case_sel.set_options([])
+            cards.clear()
+            with cards:
+                ui.label(f'Selection error: {exc}').classes('text-negative text-caption')
+            return
+        cases = [int(c['case']) for c in resolved]
+        case_sel.set_options(cases, value=cases[0] if cases else None)
+        state['case'] = cases[0] if cases else None
+        _draw_case()
+
+    def _draw_case():
+        cards.clear()
+        case = case_sel.value if case_sel.value is not None else state['case']
+        if case is None:
+            return
+        try:
+            ex = client.extract(job_id, f'id:{case}', phase=state['phase'], max_points=2000)
+        except Exception as exc:
+            with cards:
+                ui.label(f'Extract error: {exc}').classes('text-negative text-caption')
+            return
+        logs = ex.get('logs', [])
+        if not logs:
+            with cards:
+                ui.label('No flight log for this case/phase.').classes('text-caption text-grey')
+            return
+        df = extract_log_to_df(logs[0])
+        with cards:
+            _build_download_row(client, job_id, state, case)
+            if {'Latitude [deg]', 'Longitude [deg]'}.issubset(df.columns):
+                _build_map_card(df, f'{key}-{case}', summary_items)
+            if {'Latitude [deg]', 'Altitude [m]'}.issubset(df.columns):
+                _build_cesium_card(df, summary_items, f'{key}-{case}')
+            try:
+                _build_graph_card([(f'case {case}', df)])
+            except Exception as exc:
                 ui.label(f'Graph error: {exc}').classes('text-negative')
+
+    case_sel.on('update:model-value', lambda _: _draw_case())
+    _resolve_cases()
+
+
+def _build_download_row(client, job_id, state, case) -> None:
+    """PNG/SVG/CSV download buttons. The UI holds the bearer token and proxies the bytes to the
+    browser (design §6): the browser never talks to the API directly."""
+    sel = f'id:{case}'
+    phase = state['phase']
+
+    def _dl_plot(fmt):
+        col = 'Altitude [m]'
+        data = client.plot(job_id, 'timeseries', fmt=fmt, select=sel, column=col, phase=phase)
+        ui.download(data, f'job{job_id}_case{case}_{col}.{fmt}'.replace(' ', '_'))
+
+    def _dl_csv():
+        data = client.extract_file(job_id, sel, fmt='csv', phase=phase, max_points=0)
+        ui.download(data, f'job{job_id}_case{case}.csv')
+
+    with ui.row().classes('q-gutter-xs q-mb-xs'):
+        ui.label('Download:').classes('text-caption text-grey q-my-auto')
+        ui.button('PNG', on_click=lambda: _dl_plot('png')).props('dense flat color=primary')
+        ui.button('SVG', on_click=lambda: _dl_plot('svg')).props('dense flat color=primary')
+        ui.button('CSV', on_click=_dl_csv).props('dense flat color=primary')
 
 
 # ── Cards ────────────────────────────────────────────────────────────────────
 
-def _build_summary_card(summary_files: list[str]):
+def _build_summary_card(items: list):
+    """items: (key, value, unit) tuples from the /result/summary API (already merged across
+    per-phase summary files)."""
+    if not items:
+        return
     with ui.card().classes('w-full q-mb-md'):
         ui.label('Flight Summary').classes('text-subtitle2 q-mb-sm')
-        for path in summary_files:
-            items = parse_summary(path)
-            if not items:
+
+        buckets: dict[str, list[tuple[str, str, str]]] = {}
+        leftovers: list[tuple[str, str, str]] = []
+        for key, val, unit in items:
+            matched = False
+            for sec_label, _ in _SUMMARY_SECTIONS:
+                if key.startswith(sec_label):
+                    short = key[len(sec_label):].strip() or key
+                    buckets.setdefault(sec_label, []).append((short, val, unit))
+                    matched = True
+                    break
+            if not matched:
+                leftovers.append((key, val, unit))
+
+        for sec_label, icon in _SUMMARY_SECTIONS:
+            sec_items = buckets.get(sec_label)
+            if not sec_items:
                 continue
-            if len(summary_files) > 1:
-                ui.label(Path(path).parent.name).classes('text-caption text-grey q-mb-xs')
+            time_hint = next(
+                (f'{v} {u}' for k, v, u in sec_items if '[s]' in u),
+                sec_items[0][1] + (' ' + sec_items[0][2] if sec_items[0][2] else ''),
+            ).strip()
+            header = f'{sec_label}   {time_hint}'
+            with ui.expansion(header, icon=icon).classes('w-full'):
+                with ui.grid(columns=2).classes('w-full q-pa-xs q-col-gutter-sm'):
+                    for sk, v, u in sec_items:
+                        with ui.row().classes('items-baseline q-gutter-xs'):
+                            ui.label((sk + ':') if sk else '').classes('text-caption text-grey')
+                            ui.label(v).classes('text-body2 text-weight-medium')
+                            if u:
+                                ui.label(u).classes('text-caption text-grey')
 
-            buckets: dict[str, list[tuple[str, str, str]]] = {}
-            leftovers: list[tuple[str, str, str]] = []
-            for key, val, unit in items:
-                matched = False
-                for sec_label, _ in _SUMMARY_SECTIONS:
-                    if key.startswith(sec_label):
-                        short = key[len(sec_label):].strip() or key
-                        buckets.setdefault(sec_label, []).append((short, val, unit))
-                        matched = True
-                        break
-                if not matched:
-                    leftovers.append((key, val, unit))
-
-            for sec_label, icon in _SUMMARY_SECTIONS:
-                sec_items = buckets.get(sec_label)
-                if not sec_items:
-                    continue
-                time_hint = next(
-                    (f'{v} {u}' for k, v, u in sec_items if '[s]' in u),
-                    sec_items[0][1] + (' ' + sec_items[0][2] if sec_items[0][2] else ''),
-                ).strip()
-                header = f'{sec_label}   {time_hint}'
-                with ui.expansion(header, icon=icon).classes('w-full'):
-                    with ui.grid(columns=2).classes('w-full q-pa-xs q-col-gutter-sm'):
-                        for sk, v, u in sec_items:
-                            with ui.row().classes('items-baseline q-gutter-xs'):
-                                ui.label((sk + ':') if sk else '').classes('text-caption text-grey')
-                                ui.label(v).classes('text-body2 text-weight-medium')
-                                if u:
-                                    ui.label(u).classes('text-caption text-grey')
-
-            if leftovers:
-                with ui.expansion('Other', icon='more_horiz').classes('w-full'):
-                    with ui.grid(columns=2).classes('w-full q-pa-xs q-col-gutter-sm'):
-                        for k, v, u in leftovers:
-                            with ui.row().classes('items-baseline q-gutter-xs'):
-                                ui.label(k + ':').classes('text-caption text-grey')
-                                ui.label(v).classes('text-body2 text-weight-medium')
-                                if u:
-                                    ui.label(u).classes('text-caption text-grey')
+        if leftovers:
+            with ui.expansion('Other', icon='more_horiz').classes('w-full'):
+                with ui.grid(columns=2).classes('w-full q-pa-xs q-col-gutter-sm'):
+                    for k, v, u in leftovers:
+                        with ui.row().classes('items-baseline q-gutter-xs'):
+                            ui.label(k + ':').classes('text-caption text-grey')
+                            ui.label(v).classes('text-body2 text-weight-medium')
+                            if u:
+                                ui.label(u).classes('text-caption text-grey')
 
 
-def _build_sensitivity_card(result_dir: str):
-    sens_path  = os.path.join(result_dir, 'sensitivity_results.csv')
-    cases_path = os.path.join(result_dir, 'sensitivity_cases.csv')
-    if not os.path.isfile(sens_path):
-        return
+def _build_sensitivity_card(client, job_id):
     try:
-        df = pd.read_csv(sens_path)
-        cases_df = pd.read_csv(cases_path) if os.path.isfile(cases_path) else None
+        df = table_to_df(client.result_table(job_id, 'sensitivity_results'))
     except Exception:
         return
+    cases_df = _safe(lambda: table_to_df(client.result_table(job_id, 'sensitivity_cases')), None)
     if df.empty:
         return
 
@@ -919,23 +1031,23 @@ def _build_cesium_card(df: pd.DataFrame, summary_items: list | None, key):
     ui.timer(0.6, lambda: ui.run_javascript(js), once=True)
 
 
-def _build_graph_card(csv_files: list[str], preloaded_df: pd.DataFrame | None):
-    state: dict = {}
-
-    def _load(path: str) -> pd.DataFrame:
-        return pd.read_csv(path).dropna(how='any', axis=1)
-
-    state['df'] = preloaded_df if preloaded_df is not None else _load(csv_files[0])
+def _build_graph_card(logs: list):
+    """logs: [(label, DataFrame)] already fetched (decimated) via the extract API. Column
+    switching is client-side over the in-memory frame; no server round-trip per switch
+    (design §6 / review B10)."""
+    if not logs:
+        return
+    state: dict = {'df': logs[0][1]}
 
     with ui.card().classes('w-full'):
         ui.label('Interactive Graph').classes('text-subtitle2 q-mb-xs')
 
-        if len(csv_files) > 1:
-            names = [Path(f).stem for f in csv_files]
+        if len(logs) > 1:
+            names = [lbl for lbl, _ in logs]
 
             def _on_csv(e):
                 idx = names.index(e.value) if e.value in names else 0
-                state['df'] = _load(csv_files[idx])
+                state['df'] = logs[idx][1]
                 _rebuild_presets()
                 _refresh()
 
