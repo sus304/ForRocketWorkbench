@@ -20,7 +20,7 @@ from typing import Optional
 
 from nicegui import ui
 
-from web.pages.shared import build_header
+from web.service_ui.layout import service_header
 from web.service_ui import config, render
 # NOTE: web.services.project_service (which pulls in web.db) is imported lazily inside the
 # submit-form branch only. The VM-resident server disables that form (config.submit_enabled()
@@ -95,7 +95,7 @@ def client():
 
 @ui.page('/jobs')
 def jobs_page():
-    build_header(active='Jobs')
+    service_header(active='Jobs')
 
     with ui.column().classes('q-pa-md w-full'):
         ui.label('Compute Jobs').classes('text-h6 q-mb-sm')
@@ -228,7 +228,7 @@ def _cancel(job_id: int):
 
 @ui.page('/jobs/{job_id}')
 def job_detail_page(job_id: int):
-    build_header(active='Jobs')
+    service_header(active='Jobs')
 
     with ui.column().classes('q-pa-md w-full'):
         with ui.row().classes('items-center q-mb-md'):

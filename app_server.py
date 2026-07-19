@@ -42,6 +42,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+@ui.page("/")
+def _root():
+    # The service UI has no landing page of its own; the jobs list is the home. Registering "/"
+    # here also gives the post-login redirect a valid target when the user opened the root URL
+    # (referrer_path == "/"), instead of a 404.
+    ui.navigate.to("/jobs")
+
+
 @ui.page("/login")
 def login_page():
     if app.storage.user.get("authenticated", False):
@@ -52,7 +60,10 @@ def login_page():
     def _try():
         if auth.check_password(pw.value, expected):
             app.storage.user.update({"authenticated": True})
-            ui.navigate.to(app.storage.user.get("referrer_path", "/jobs"))
+            dest = app.storage.user.get("referrer_path") or "/jobs"
+            if dest in ("/", "/login"):
+                dest = "/jobs"
+            ui.navigate.to(dest)
         else:
             ui.notify("Wrong password", color="negative")
 
