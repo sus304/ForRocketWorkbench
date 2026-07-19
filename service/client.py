@@ -73,3 +73,65 @@ class ServiceClient:
         r = self.s.get(self._url("/health"))
         r.raise_for_status()
         return r.json()
+
+    # ── remote result API (design §4-5). The GUI and `wb extract` reach results through these
+    # rather than reading result_dir directly, so decimation/limits are enforced in one place
+    # and the mixed-topology (local UI -> remote service) path keeps working (§3.4). ──────────
+
+    def result_meta(self, job_id: int) -> dict:
+        r = self.s.get(self._url(f"/jobs/{job_id}/result/meta"), headers=self.headers)
+        r.raise_for_status()
+        return r.json()
+
+    def result_summary(self, job_id: int) -> list:
+        r = self.s.get(self._url(f"/jobs/{job_id}/result/summary"), headers=self.headers)
+        r.raise_for_status()
+        return r.json()["items"]
+
+    def result_table(self, job_id: int, name: str) -> dict:
+        r = self.s.get(self._url(f"/jobs/{job_id}/result/tables/{name}"), headers=self.headers)
+        r.raise_for_status()
+        return r.json()
+
+    def result_cases(self, job_id: int, select: str) -> list:
+        r = self.s.get(self._url(f"/jobs/{job_id}/result/cases"),
+                       headers=self.headers, params={"select": select})
+        r.raise_for_status()
+        return r.json()["cases"]
+
+    def extract(self, job_id: int, select: str, **params) -> dict:
+        """Extract per-case logs as JSON (column-oriented). params: phase/kind/columns/
+        t_start/t_end/max_points (columns may be a list or comma string)."""
+        q = _extract_params(select, params)
+        r = self.s.get(self._url(f"/jobs/{job_id}/result/extract"), headers=self.headers, params=q)
+        r.raise_for_status()
+        return r.json()
+
+    def extract_file(self, job_id: int, select: str, fmt: str = "csv", **params) -> bytes:
+        """Extract as a downloadable file (fmt='csv' single log, or 'zip' bundle). Returns bytes
+        for the UI to proxy to the browser (design §6)."""
+        q = _extract_params(select, params)
+        q["format"] = fmt
+        r = self.s.get(self._url(f"/jobs/{job_id}/result/extract"), headers=self.headers, params=q)
+        r.raise_for_status()
+        return r.content
+
+    def plot(self, job_id: int, kind: str, fmt: str = "png", **params) -> bytes:
+        """Fetch a document image (kind timeseries/histogram/dispersion) as PNG/SVG bytes."""
+        q = {k: v for k, v in params.items() if v is not None}
+        q["format"] = fmt
+        r = self.s.get(self._url(f"/jobs/{job_id}/result/plots/{kind}"),
+                       headers=self.headers, params=q)
+        r.raise_for_status()
+        return r.content
+
+
+def _extract_params(select: str, params: dict) -> dict:
+    q = {"select": select}
+    for k, v in params.items():
+        if v is None:
+            continue
+        if k == "columns" and isinstance(v, (list, tuple)):
+            v = ",".join(v)
+        q[k] = v
+    return q
