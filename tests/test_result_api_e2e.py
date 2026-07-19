@@ -7,6 +7,7 @@ service + client half of the E2E on loopback.
 """
 from __future__ import annotations
 
+import io
 import json
 import sys
 import time
@@ -76,6 +77,42 @@ def test_result_api_end_to_end(binary_path, store, tmp_path, projects_dir):
             assert 1 <= len(top) <= 3
         png = sc.plot(jid, "dispersion", table=_dispersion_table(meta), axes="ne")
         assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    finally:
+        w.stop()
+
+
+def test_project_submit_end_to_end(binary_path, store, tmp_path, projects_dir):
+    """UI-refresh main path E2E: upload a project to the store, submit a run by reference (no
+    upload at submit), wait for completion, and read its result meta. Skipped without binary."""
+    import os
+    import zipfile as _zf
+    repo = Path(__file__).resolve().parent.parent
+    w = Worker(store, tmp_path / "data", python=sys.executable,
+               runner_py=str(repo / "runner.py"), post_py=str(repo / "post.py"), poll=0.05)
+    sc = ServiceClient("", TOKEN, session=TestClient(create_app(store, w, TOKEN)))
+    # zip the example project
+    buf = io.BytesIO()
+    ex = projects_dir / "example"
+    with _zf.ZipFile(buf, "w") as zf:
+        for root, _d, files in os.walk(ex):
+            for f in files:
+                full = os.path.join(root, f)
+                rel = os.path.relpath(full, ex)
+                if rel.split(os.sep)[0].startswith("work_"):
+                    continue
+                zf.write(full, arcname=rel)
+    sc.upload_project("ex", buf.getvalue())
+    w.start()
+    try:
+        jid = sc.submit_project("ex", "trajectory")["id"]
+        deadline = time.time() + 180
+        while time.time() < deadline:
+            if sc.status(jid)["status"] in ("completed", "failed"):
+                break
+            time.sleep(0.3)
+        assert sc.status(jid)["status"] == "completed"
+        assert sc.status(jid)["project"] == "ex"
+        assert sc.result_meta(jid)["mode"] == "trajectory"
     finally:
         w.stop()
 
