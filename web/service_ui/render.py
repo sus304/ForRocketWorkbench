@@ -836,7 +836,7 @@ def _build_flight_section(client, job_id, meta: dict, key, summary_items: list) 
             except Exception as exc:
                 ui.label(f'Graph error: {exc}').classes('text-negative')
 
-    case_sel.on('update:model-value', lambda _: _draw_case())
+    case_sel.on_value_change(lambda _: _draw_case())
     _enumerate_small() if small else _resolve_cases()
 
 

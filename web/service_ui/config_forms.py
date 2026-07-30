@@ -697,7 +697,7 @@ def _build_area_form(data: dict, container) -> Callable[[], dict]:
                 pass
 
         for el in [spd_lo, spd_hi, spd_step, dir_lo, dir_hi, dir_step]:
-            el.on('update:modelValue', lambda _: _upd_cases())
+            el.on_value_change(lambda _: _upd_cases())
         _upd_cases()
 
     def collect() -> dict:

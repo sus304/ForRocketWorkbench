@@ -155,9 +155,9 @@ def jobs_page():
                 jobs_list.refresh()
 
             ui.input('Search', placeholder='model / project / memo') \
-                .props('dense clearable').style('min-width:220px').on('update:model-value', _set_q)
+                .props('dense clearable').style('min-width:220px').on_value_change(_set_q)
             ui.select(['all'] + _MODES, value='all', label='Mode') \
-                .props('dense').style('min-width:150px').on('update:model-value', _set_mode)
+                .props('dense').style('min-width:150px').on_value_change(_set_mode)
 
         @ui.refreshable
         def jobs_list():
