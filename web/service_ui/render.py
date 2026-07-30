@@ -823,7 +823,7 @@ def _build_flight_section(client, job_id, meta: dict, key, summary_items: list) 
         series = [(f"case {lg.get('case', i)}", extract_log_to_df(lg)) for i, lg in enumerate(logs)]
         primary_df = series[0][1]
         with cards:
-            _build_download_row(client, job_id, state, primary)
+            _build_download_row(client, job_id, state, cases)
             if len(series) > 1:
                 ui.label(f'{len(series)} cases overlaid — Ground Track / 3D show case {primary}.') \
                     .classes('text-caption text-grey')
@@ -840,26 +840,38 @@ def _build_flight_section(client, job_id, meta: dict, key, summary_items: list) 
     _enumerate_small() if small else _resolve_cases()
 
 
-def _build_download_row(client, job_id, state, case) -> None:
+def _build_download_row(client, job_id, state, cases) -> None:
     """PNG/SVG/CSV download buttons. The UI holds the bearer token and proxies the bytes to the
-    browser (design §6): the browser never talks to the API directly."""
-    sel = f'id:{case}'
+    browser (design §6): the browser never talks to the API directly. PNG/SVG/CSV cover the
+    primary (first) case; when several cases are selected, a ZIP bundles every one's flight log."""
+    primary = cases[0]
     phase = state['phase']
+    sel = f'id:{primary}'
 
     def _dl_plot(fmt):
         col = 'Altitude [m]'
         data = client.plot(job_id, 'timeseries', fmt=fmt, select=sel, column=col, phase=phase)
-        ui.download(data, f'job{job_id}_case{case}_{col}.{fmt}'.replace(' ', '_'))
+        ui.download(data, f'job{job_id}_case{primary}_{col}.{fmt}'.replace(' ', '_'))
 
     def _dl_csv():
         data = client.extract_file(job_id, sel, fmt='csv', phase=phase, max_points=0)
-        ui.download(data, f'job{job_id}_case{case}.csv')
+        ui.download(data, f'job{job_id}_case{primary}.csv')
+
+    def _dl_zip():
+        # Bundle every selected case; raw (max_points=0) only for a handful, else near-full points.
+        id_expr = 'id:' + ','.join(str(c) for c in cases)
+        mp = 0 if len(cases) <= 3 else 20000
+        data = client.extract_file(job_id, id_expr, fmt='zip', phase=phase, max_points=mp)
+        ui.download(data, f'job{job_id}_cases_{"_".join(str(c) for c in cases)}.zip')
 
     with ui.row().classes('q-gutter-xs q-mb-xs'):
         ui.label('Download:').classes('text-caption text-grey q-my-auto')
         ui.button('PNG', on_click=lambda: _dl_plot('png')).props('dense flat color=primary')
         ui.button('SVG', on_click=lambda: _dl_plot('svg')).props('dense flat color=primary')
         ui.button('CSV', on_click=_dl_csv).props('dense flat color=primary')
+        if len(cases) > 1:
+            ui.button(f'All CSVs (ZIP ×{len(cases)})', on_click=_dl_zip) \
+                .props('dense flat color=primary')
 
 
 # ── Cards ────────────────────────────────────────────────────────────────────
