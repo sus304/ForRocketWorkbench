@@ -60,9 +60,9 @@ def _sanitize_name(raw: str) -> str:
 
 
 def _upload_filename(e) -> str:
-    """Filename from a NiceGUI upload event, tolerant of version differences. The field has been
-    `name` (2.x) but differs across releases; the VM and local envs run different NiceGUI versions,
-    so never touch a fixed attribute — try the known spellings, then multi-upload, else ''."""
+    """Filename from a NiceGUI upload event, tolerant of version differences: older releases expose
+    `name`/`content` directly on the event; newer ones (e.g. the VM's) expose a single `file`
+    attribute (a Starlette UploadFile with `.filename`). Never touch a fixed attribute."""
     for attr in ('name', 'file_name', 'filename'):
         v = getattr(e, attr, None)
         if v:
@@ -70,18 +70,63 @@ def _upload_filename(e) -> str:
     names = getattr(e, 'names', None)
     if names:
         return str(names[0])
+    f = getattr(e, 'file', None)
+    if f is not None:
+        for attr in ('filename', 'name'):
+            v = getattr(f, attr, None)
+            if v:
+                return str(v)
     return ''
 
 
 def _upload_content(e):
-    """Readable file object from a NiceGUI upload event, tolerant of version differences."""
+    """Return a SYNC readable byte-source from a NiceGUI upload event, across versions.
+
+    Older: `e.content` (a file object) / `e.contents[0]`. Newer: `e.file`, a Starlette UploadFile
+    whose SYNC underlying stream is `e.file.file` (its own `.read()` is a coroutine — unusable from
+    this sync handler, so we must reach the wrapped file, not call the UploadFile)."""
     c = getattr(e, 'content', None)
     if c is not None:
         return c
     contents = getattr(e, 'contents', None)
     if contents:
         return contents[0]
+    f = getattr(e, 'file', None)
+    if f is not None:
+        inner = getattr(f, 'file', None)   # Starlette UploadFile.file — the sync stream
+        if inner is not None:
+            return inner
+        if isinstance(f, (bytes, bytearray)) or hasattr(f, 'read'):
+            return f
     return None
+
+
+def _describe_upload(e) -> str:
+    """A compact description of an upload event for the server log, so a still-unsupported NiceGUI
+    shape reveals exactly which attribute holds the file/bytes."""
+    attrs = sorted(a for a in dir(e) if not a.startswith('_'))
+    f = getattr(e, 'file', None)
+    if f is None:
+        return f"event attrs: {attrs}"
+    fattrs = sorted(a for a in dir(f) if not a.startswith('_'))
+    return f"event attrs: {attrs}; file type={type(f).__name__} attrs={fattrs}"
+
+
+def _read_upload_bytes(content) -> bytes:
+    """Read an upload's bytes robustly across NiceGUI versions: the file object may already be at
+    EOF (the framework read it to measure size), or `content` may itself be raw bytes/str."""
+    if content is None:
+        return b''
+    if isinstance(content, (bytes, bytearray)):
+        return bytes(content)
+    try:
+        content.seek(0)
+    except Exception:
+        pass
+    data = content.read()
+    if isinstance(data, str):
+        data = data.encode()
+    return data or b''
 
 
 @ui.page('/projects')
@@ -122,10 +167,9 @@ def projects_page():
                     raw = (new_name.value or fname.rsplit('.', 1)[0])
                     name = _sanitize_name(raw)
                     _log(f"upload received: file={fname!r} raw_name={raw!r} -> name={name!r} "
-                         f"(event attrs: {sorted(a for a in dir(e) if not a.startswith('_'))})")
+                         f"({_describe_upload(e)})")
                     try:
-                        content = _upload_content(e)
-                        data = content.read() if content is not None else b''
+                        data = _read_upload_bytes(_upload_content(e))
                         if not data:
                             _fail('Upload', ValueError('uploaded file was empty or unreadable'))
                             return
@@ -311,10 +355,10 @@ def _file_manager(name: str):
         def _on_upload(e):
             fname = _upload_filename(e)
             target = (target_in.value or fname).strip()
-            _log(f"file upload received: project={name!r} file={fname!r} target={target!r}")
+            _log(f"file upload received: project={name!r} file={fname!r} target={target!r} "
+                 f"({_describe_upload(e)})")
             try:
-                content = _upload_content(e)
-                data = content.read() if content is not None else b''
+                data = _read_upload_bytes(_upload_content(e))
                 if not data:
                     _fail('Upload', ValueError('uploaded file was empty or unreadable'))
                     return
