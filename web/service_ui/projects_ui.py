@@ -186,6 +186,104 @@ def _generic_form(content, container) -> 'callable':
     return collect
 
 
+def _human_size(n: int) -> str:
+    f = float(n)
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if f < 1024 or unit == 'GB':
+            return f'{f:.0f} {unit}' if unit == 'B' else f'{f:.1f} {unit}'
+        f /= 1024
+    return f'{f:.1f} GB'
+
+
+def _file_manager(name: str):
+    """Upload/replace/download/delete the input files a config references (thrust/wind/aero CSVs),
+    so a stored project can be iterated without re-uploading the whole ZIP."""
+    with ui.card().classes('w-full q-mb-md'):
+        with ui.row().classes('items-center q-gutter-sm'):
+            ui.label('Input Files').classes('text-subtitle2')
+            ui.label('config が参照する推力/風/空力テーブル等。差し替えても config 内の値（パス）は変わりません。') \
+                .classes('text-caption text-grey')
+
+        @ui.refreshable
+        def listing():
+            try:
+                data = _client().list_project_files(name)
+            except Exception as exc:
+                ui.label(f'Cannot load files: {exc}').classes('text-negative')
+                return
+            files = data.get('files', [])
+            present = {f['path'] for f in files}
+            referenced = set(data.get('referenced', []))
+            missing = sorted(referenced - present)
+            if missing:
+                ui.label('⚠ config が参照しているが見つからないファイル: ' + ', '.join(missing)) \
+                    .classes('text-negative text-caption')
+            if not files:
+                ui.label('No files.').classes('text-caption text-grey')
+                return
+            with ui.list().props('bordered separator').classes('w-full'):
+                for f in files:
+                    _file_row(name, f, referenced, listing)
+
+        def _on_upload(e):
+            target = (target_in.value or e.name).strip()
+            try:
+                _client().upload_project_file(name, target, e.content.read())
+                ui.notify(f'Uploaded {target}.', type='positive')
+                target_in.set_value('')
+                listing.refresh()
+            except Exception as exc:
+                ui.notify(f'Upload failed: {exc}', type='negative', multi_line=True)
+
+        with ui.row().classes('items-center q-gutter-sm q-mt-xs'):
+            target_in = ui.input('Save as（空欄=ファイル名／既存名を入力で差し替え）') \
+                .props('dense').style('min-width:340px')
+            ui.upload(label='Upload / Replace', auto_upload=True, on_upload=_on_upload) \
+                .classes('max-w-xs')
+
+        listing()
+
+
+def _file_row(name: str, f: dict, referenced: set, listing):
+    path, size = f['path'], f['size']
+    badge = '⚙ config' if f.get('is_config') else ('🔗 referenced' if path in referenced else '· data')
+    with ui.item():
+        with ui.item_section():
+            ui.item_label(path)
+            ui.item_label(f'{_human_size(size)}   {badge}').props('caption')
+        with ui.item_section().props('side'):
+            with ui.row().classes('q-gutter-xs'):
+                ui.button(icon='download', on_click=lambda p=path: _dl_file(name, p)) \
+                    .props('dense flat').tooltip('Download')
+                ui.button(icon='delete', on_click=lambda p=path: _del_file(name, p, listing)) \
+                    .props('dense flat color=negative').tooltip('Delete')
+
+
+def _dl_file(name: str, path: str):
+    try:
+        data = _client().download_project_file(name, path)
+        ui.download(data, path.rsplit('/', 1)[-1])
+    except Exception as exc:
+        ui.notify(f'Download failed: {exc}', type='negative')
+
+
+def _del_file(name: str, path: str, listing):
+    with ui.dialog() as dlg, ui.card():
+        ui.label(f'Delete "{path}"? This cannot be undone.')
+        with ui.row():
+            def _do():
+                try:
+                    _client().delete_project_file(name, path)
+                    ui.notify('Deleted.', type='warning')
+                    dlg.close()
+                    listing.refresh()
+                except Exception as exc:
+                    ui.notify(f'Delete failed: {exc}', type='negative')
+            ui.button('Delete', on_click=_do).props('color=negative')
+            ui.button('Cancel', on_click=dlg.close).props('flat')
+    dlg.open()
+
+
 @ui.page('/projects/{name}/edit')
 def project_edit_page(name: str):
     service_header(active='Projects')
@@ -193,6 +291,8 @@ def project_edit_page(name: str):
         with ui.row().classes('items-center q-gutter-sm'):
             ui.button('← Projects', on_click=lambda: ui.navigate.to('/projects')).props('flat')
             ui.label(f'Edit: {name}').classes('text-h6')
+
+        _file_manager(name)
 
         try:
             cfg = _client().get_project_config(name)

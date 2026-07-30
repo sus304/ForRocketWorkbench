@@ -276,3 +276,118 @@ def download_project(data_root, name: str) -> bytes:
             if f.is_file() and not any(part.startswith("work_") for part in f.relative_to(p).parts):
                 zf.write(f, arcname=str(Path(name) / f.relative_to(p)))
     return buf.getvalue()
+
+
+# ── per-file management (input data files: thrust/wind/CA CSVs, …) ────────────────
+# The browser edits config *values* through read_config/write_config; these manage the *files*
+# a config references (thrust curves, wind profiles, aero tables) so a stored project can be
+# iterated on without re-uploading the whole ZIP. Same containment rules as everything else:
+# project-relative only, no absolute/../~ escape, no symlink, and work_* outputs are off-limits.
+
+MAX_FILE_BYTES = 100 * 1024 ** 2   # 100 MB per input file
+
+
+def _resolve_within(proj: Path, relpath: str) -> Path:
+    """Return the absolute path for a project-relative file, rejecting any escape or output dir."""
+    if not relpath or not relpath.strip():
+        raise ProjectError("empty file path")
+    v = relpath.replace("\\", "/").strip()
+    if os.path.isabs(relpath) or v.startswith("/") or v.startswith("~") or ".." in Path(v).parts:
+        raise ProjectError(f"file path must be project-relative: {relpath!r}")
+    if any(part.startswith("work_") for part in Path(v).parts):
+        raise ProjectError("cannot manage files under work_ output directories")
+    target = proj / v
+    rp, tp = proj.resolve(), target.resolve()
+    if rp != tp and rp not in tp.parents:
+        raise ProjectError(f"file path escapes project: {relpath!r}")
+    return target
+
+
+def list_files(data_root, name: str) -> List[dict]:
+    """List every regular file in the project (excluding work_* outputs and symlinks), with size
+    and a config/data classification, so the editor can show a file manager."""
+    p = project_dir(data_root, name)
+    if not p.is_dir():
+        raise ProjectNotFound(f"project not found: {name}")
+    out = []
+    for f in sorted(p.rglob("*")):
+        rel = f.relative_to(p)
+        if any(part.startswith("work_") for part in rel.parts):
+            continue
+        if f.is_symlink() or not f.is_file():
+            continue
+        out.append({
+            "path": rel.as_posix(),
+            "size": f.stat().st_size,
+            "is_config": f.suffix == ".json",
+        })
+    return out
+
+
+def read_file(data_root, name: str, relpath: str) -> bytes:
+    p = project_dir(data_root, name)
+    if not p.is_dir():
+        raise ProjectNotFound(f"project not found: {name}")
+    target = _resolve_within(p, relpath)
+    if target.is_symlink() or not target.is_file():
+        raise ProjectNotFound(f"file not found: {relpath}")
+    return target.read_bytes()
+
+
+def write_file(data_root, name: str, relpath: str, data: bytes) -> dict:
+    """Create or replace a project input file (atomic tmp + os.replace)."""
+    p = project_dir(data_root, name)
+    if not p.is_dir():
+        raise ProjectNotFound(f"project not found: {name}")
+    if len(data) > MAX_FILE_BYTES:
+        raise ProjectError(f"file exceeds {MAX_FILE_BYTES} bytes")
+    target = _resolve_within(p, relpath)
+    if target.is_dir():
+        raise ProjectError(f"path is a directory: {relpath}")
+    if target.exists() and target.is_symlink():
+        raise ProjectError(f"refusing to overwrite a symlink: {relpath}")
+    # A .json upload must be a valid config with only project-relative path fields — otherwise a
+    # malicious config could slip an absolute wind/thrust path into the trusted store and be read
+    # off the server FS at submit time, bypassing the write_config guard (review N-6/R-A).
+    if target.suffix == ".json":
+        try:
+            parsed = json.loads(data.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError) as e:
+            raise ProjectError(f"invalid JSON config: {e}")
+        for _k, val in _iter_path_values(parsed):
+            _check_relative(val)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
+    os.replace(tmp, target)
+    return {"path": target.relative_to(p).as_posix(), "size": len(data)}
+
+
+def delete_file(data_root, name: str, relpath: str) -> None:
+    p = project_dir(data_root, name)
+    if not p.is_dir():
+        raise ProjectNotFound(f"project not found: {name}")
+    target = _resolve_within(p, relpath)
+    if not target.exists() or target.is_dir():
+        raise ProjectNotFound(f"file not found: {relpath}")
+    target.unlink()
+
+
+def referenced_files(data_root, name: str) -> List[str]:
+    """Every project-relative path a config references (thrust/wind/aero files). Used by the editor
+    to flag references whose target file is missing."""
+    p = project_dir(data_root, name)
+    if not p.is_dir():
+        raise ProjectNotFound(f"project not found: {name}")
+    refs: set = set()
+    for jf in sorted(p.glob("*.json")):
+        try:
+            data = json.loads(jf.read_text())
+        except (OSError, ValueError):
+            continue
+        for _k, val in _iter_path_values(data):
+            v = (val or "").strip()
+            if v:
+                refs.add(v.replace("\\", "/"))
+    return sorted(refs)

@@ -448,6 +448,41 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
         return StreamingResponse(io.BytesIO(blob), media_type="application/zip",
                                  headers=_attachment(f"{name}.zip"))
 
+    # ── per-file management (input data files a config references) ─────────────
+    @app.get("/projects/{name}/files", dependencies=auth)
+    def list_project_files(name: str):
+        try:
+            return {"files": projects.list_files(data_root, name),
+                    "referenced": projects.referenced_files(data_root, name)}
+        except ProjectError as e:
+            raise project_error(e)
+
+    @app.get("/projects/{name}/files/download", dependencies=auth)
+    def download_project_file(name: str, path: str = Query(...)):
+        try:
+            blob = projects.read_file(data_root, name, path)
+        except ProjectError as e:
+            raise project_error(e)
+        return StreamingResponse(io.BytesIO(blob), media_type="application/octet-stream",
+                                 headers=_attachment(os.path.basename(path)))
+
+    @app.post("/projects/{name}/files", dependencies=auth)
+    async def upload_project_file(name: str, path: str = Form(...),
+                                  payload: UploadFile = File(...)):
+        data = await payload.read()
+        try:
+            return projects.write_file(data_root, name, path, data)
+        except ProjectError as e:
+            raise project_error(e)
+
+    @app.delete("/projects/{name}/files", dependencies=auth)
+    def delete_project_file(name: str, path: str = Query(...)):
+        try:
+            projects.delete_file(data_root, name, path)
+        except ProjectError as e:
+            raise project_error(e)
+        return {"deleted": path}
+
     return app
 
 

@@ -115,3 +115,75 @@ def test_write_config_rejects_absolute_path(tmp_path):
     cfg["files"]["config_solver.json"]["Wind Condition"]["Wind File Path"] = "/etc/passwd"
     with pytest.raises(pj.ProjectError):
         pj.write_config(tmp_path, "rk", cfg["files"])
+
+
+# ── per-file management (input data files) ───────────────────────────────────────
+
+def _project(tmp_path):
+    pj.upload_project(tmp_path, "rk", _zip(_valid_project_files()))
+    return tmp_path
+
+
+def test_list_files_reports_size_and_config_flag(tmp_path):
+    _project(tmp_path)
+    files = {f["path"]: f for f in pj.list_files(tmp_path, "rk")}
+    assert "wind.csv" in files and files["wind.csv"]["size"] > 0
+    assert files["config_solver.json"]["is_config"] is True
+    assert files["wind.csv"]["is_config"] is False
+
+
+def test_write_read_replace_delete_roundtrip(tmp_path):
+    _project(tmp_path)
+    pj.write_file(tmp_path, "rk", "thrust.csv", b"t,F\n0,100\n")
+    assert pj.read_file(tmp_path, "rk", "thrust.csv") == b"t,F\n0,100\n"
+    pj.write_file(tmp_path, "rk", "thrust.csv", b"t,F\n0,200\n")   # replace
+    assert pj.read_file(tmp_path, "rk", "thrust.csv") == b"t,F\n0,200\n"
+    pj.delete_file(tmp_path, "rk", "thrust.csv")
+    with pytest.raises(pj.ProjectNotFound):
+        pj.read_file(tmp_path, "rk", "thrust.csv")
+
+
+def test_referenced_files_lists_config_paths(tmp_path):
+    _project(tmp_path)
+    refs = pj.referenced_files(tmp_path, "rk")
+    assert "wind.csv" in refs and "winds.zip" in refs
+
+
+@pytest.mark.parametrize("bad", ["/etc/passwd", "../outside.csv", "~/secret",
+                                 "sub/../../escape.csv", "work_trajectory/x.csv"])
+def test_file_ops_reject_escapes(tmp_path, bad):
+    _project(tmp_path)
+    with pytest.raises(pj.ProjectError):
+        pj.write_file(tmp_path, "rk", bad, b"x")
+    with pytest.raises(pj.ProjectError):
+        pj.read_file(tmp_path, "rk", bad)
+    with pytest.raises(pj.ProjectError):
+        pj.delete_file(tmp_path, "rk", bad)
+
+
+def test_write_json_file_revalidates_relative_paths(tmp_path):
+    """A .json upload with an absolute path field must be rejected — it would otherwise smuggle a
+    server-FS read past the write_config guard (review N-6/R-A)."""
+    _project(tmp_path)
+    bad = json.dumps({"Wind Condition": {"Wind File Path": "/etc/passwd"}}).encode()
+    with pytest.raises(pj.ProjectError):
+        pj.write_file(tmp_path, "rk", "config_solver.json", bad)
+    good = json.dumps({"Wind Condition": {"Wind File Path": "wind.csv"}}).encode()
+    pj.write_file(tmp_path, "rk", "config_solver.json", good)  # relative path ok
+    # non-JSON bytes into a .json target are rejected as invalid config
+    with pytest.raises(pj.ProjectError):
+        pj.write_file(tmp_path, "rk", "config_solver.json", b"not json")
+
+
+def test_write_file_size_cap(tmp_path, monkeypatch):
+    _project(tmp_path)
+    monkeypatch.setattr(pj, "MAX_FILE_BYTES", 8)
+    with pytest.raises(pj.ProjectError):
+        pj.write_file(tmp_path, "rk", "big.csv", b"0123456789")
+
+
+def test_file_ops_missing_project(tmp_path):
+    with pytest.raises(pj.ProjectNotFound):
+        pj.list_files(tmp_path, "nope")
+    with pytest.raises(pj.ProjectNotFound):
+        pj.write_file(tmp_path, "nope", "a.csv", b"x")

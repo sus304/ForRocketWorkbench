@@ -140,6 +140,33 @@ class ServiceClient:
         r.raise_for_status()
         return r.content
 
+    def list_project_files(self, name: str) -> dict:
+        """{'files': [{path,size,is_config}], 'referenced': [path,...]} for the project's input
+        files (config values are edited via get/put_project_config)."""
+        r = self.s.get(self._url(f"/projects/{name}/files"), headers=self.headers)
+        r.raise_for_status()
+        return r.json()
+
+    def download_project_file(self, name: str, path: str) -> bytes:
+        r = self.s.get(self._url(f"/projects/{name}/files/download"),
+                       headers=self.headers, params={"path": path})
+        r.raise_for_status()
+        return r.content
+
+    def upload_project_file(self, name: str, path: str, data: bytes) -> dict:
+        r = self.s.post(self._url(f"/projects/{name}/files"), headers=self.headers,
+                        data={"path": path},
+                        files={"payload": (path.rsplit("/", 1)[-1], data,
+                                           "application/octet-stream")})
+        r.raise_for_status()
+        return r.json()
+
+    def delete_project_file(self, name: str, path: str) -> dict:
+        r = self.s.delete(self._url(f"/projects/{name}/files"),
+                          headers=self.headers, params={"path": path})
+        r.raise_for_status()
+        return r.json()
+
     # ── remote result API (design §4-5). The GUI and `wb extract` reach results through these
     # rather than reading result_dir directly, so decimation/limits are enforced in one place
     # and the mixed-topology (local UI -> remote service) path keeps working (§3.4). ──────────

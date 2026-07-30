@@ -122,3 +122,34 @@ def test_config_etag_conflict_409(store, worker):
     body = {"files": json.dumps(cfg["files"]), "if_match": "stale-etag"}
     r = c.put("/projects/rk/config", headers=auth, data=body)
     assert r.status_code == 409
+
+
+def test_project_files_crud_over_http(sc):
+    sc.upload_project("rk", _zip(_proj_files()))
+    listing = sc.list_project_files("rk")
+    paths = {f["path"] for f in listing["files"]}
+    assert {"config_solver.json", "wind.csv"} <= paths
+    assert "wind.csv" in listing["referenced"]
+
+    # add a new input file, read it back, then replace and delete
+    sc.upload_project_file("rk", "thrust.csv", b"t,F\n0,100\n")
+    assert sc.download_project_file("rk", "thrust.csv") == b"t,F\n0,100\n"
+    sc.upload_project_file("rk", "thrust.csv", b"t,F\n0,200\n")
+    assert sc.download_project_file("rk", "thrust.csv") == b"t,F\n0,200\n"
+    sc.delete_project_file("rk", "thrust.csv")
+    assert "thrust.csv" not in {f["path"] for f in sc.list_project_files("rk")["files"]}
+
+
+def test_project_file_escape_rejected_over_http(sc):
+    sc.upload_project("rk", _zip(_proj_files()))
+    with pytest.raises(Exception):  # 422 -> raise_for_status
+        sc.upload_project_file("rk", "../escape.csv", b"x")
+    with pytest.raises(Exception):
+        sc.download_project_file("rk", "/etc/passwd")
+
+
+def test_project_file_json_upload_revalidated_over_http(sc):
+    sc.upload_project("rk", _zip(_proj_files()))
+    bad = json.dumps({"Wind Condition": {"Wind File Path": "/etc/passwd"}}).encode()
+    with pytest.raises(Exception):
+        sc.upload_project_file("rk", "config_solver.json", bad)
