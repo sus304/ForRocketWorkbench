@@ -216,6 +216,10 @@ def summary_items_from_api(raw: list) -> list:
 # with a selection expression instead (design §8, review N-8/N-3).
 CASE_ENUM_CAP = 200
 
+# Cap on cases auto-overlaid on the interactive graph at once — keeps browser transfer and the
+# legend readable when a selection expression resolves to many cases (e.g. top:50).
+MAX_OVERLAY_CASES = 12
+
 
 def quickpick_expr(kind: str, phase: str) -> str:
     """Selection expression for a quick-pick chip. Pure/testable (design §8)."""
@@ -296,6 +300,81 @@ def _echart_opts(df: pd.DataFrame, x_col: str, y_col: str) -> dict:
             'lineStyle': {'color': d['line'], 'width': 2},
             'sampling': 'lttb',
         }],
+    }
+
+
+# Distinct line colours for overlaying several cases on one graph.
+_OVERLAY_PALETTE = ['#42a5f5', '#ff9800', '#66bb6a', '#ab47bc', '#ff6b9d',
+                    '#00bcd4', '#ffca28', '#8d6e63', '#26a69a', '#ef5350']
+
+
+def _auto_km_scale(col: str, all_values: list) -> tuple[float, str]:
+    """Decide a single m→km rescale for a column across ALL overlaid series, so shared axes stay
+    consistent. Returns (scale, label)."""
+    if not col.endswith('[m]'):
+        return 1.0, col
+    vmax = max((abs(v) for v in all_values if v is not None and not pd.isna(v)), default=0.0)
+    if vmax < 10_000.0:
+        return 1.0, col
+    return 1e-3, col[:-3] + '[km]'
+
+
+def _echart_multi_opts(series: list, x_col: str, y_col: str) -> dict:
+    """Overlay several (label, DataFrame) series sharing x/y columns on one line chart. For a
+    single series this matches _echart_opts (minus the legend)."""
+    all_x = [v for _, df in series for v in df[x_col].tolist()]
+    all_y = [v for _, df in series for v in df[y_col].tolist()]
+    xscale, x_label = _auto_km_scale(x_col, all_x)
+    yscale, y_label = _auto_km_scale(y_col, all_y)
+    d = _D
+    series_opts = []
+    for i, (label, df) in enumerate(series):
+        xs = [None if v is None or pd.isna(v) else v * xscale for v in df[x_col].tolist()]
+        ys = [None if v is None or pd.isna(v) else v * yscale for v in df[y_col].tolist()]
+        color = _OVERLAY_PALETTE[i % len(_OVERLAY_PALETTE)]
+        series_opts.append({
+            'type': 'line', 'name': label, 'data': list(zip(xs, ys)),
+            'showSymbol': False, 'lineStyle': {'color': color, 'width': 2},
+            'sampling': 'lttb',
+        })
+    multi = len(series) > 1
+    return {
+        'backgroundColor': d['bg'],
+        'animation': False,
+        'tooltip': {'trigger': 'axis', 'backgroundColor': '#1e1e2e',
+                    'borderColor': d['border'], 'textStyle': {'color': '#ccc', 'fontSize': 11}},
+        'legend': ({'data': [lbl for lbl, _ in series], 'top': 4,
+                    'textStyle': {'color': d['ax'], 'fontSize': 10},
+                    'type': 'scroll'} if multi else {'show': False}),
+        'toolbox': {
+            'show': True, 'right': 10, 'top': 5, 'itemSize': 14,
+            'iconStyle': {'borderColor': d['ax']},
+            'emphasis': {'iconStyle': {'borderColor': '#fff'}},
+            'feature': {'dataZoom': {'yAxisIndex': 'none'}, 'restore': {},
+                        'saveAsImage': {'pixelRatio': 2}},
+        },
+        'dataZoom': [
+            {'type': 'inside'},
+            {'type': 'slider', 'height': 18, 'bottom': 4, 'borderColor': d['border'],
+             'fillerColor': 'rgba(66,165,245,0.15)', 'handleStyle': {'color': d['line']},
+             'textStyle': {'color': d['ax'], 'fontSize': 9}},
+        ],
+        'grid': {'top': '13%' if multi else '6%', 'left': '10%', 'right': '3%', 'bottom': '18%'},
+        'xAxis': {
+            'type': 'value', 'name': x_label, 'nameLocation': 'middle', 'nameGap': 28,
+            'nameTextStyle': {'color': d['ax'], 'fontSize': 11},
+            'axisLabel': {'color': d['ax'], 'fontSize': 10},
+            'axisLine': {'lineStyle': {'color': d['border']}},
+            'splitLine': {'lineStyle': {'color': d['grid'], 'type': 'dashed'}},
+        },
+        'yAxis': {
+            'type': 'value', 'name': y_label, 'nameLocation': 'middle', 'nameGap': 55,
+            'nameRotate': 90, 'nameTextStyle': {'color': d['ax'], 'fontSize': 11},
+            'axisLabel': {'color': d['ax'], 'fontSize': 10},
+            'axisLine': {'lineStyle': {'color': d['border']}},
+            'splitLine': {'lineStyle': {'color': d['grid'], 'type': 'dashed'}},
+        },
+        'series': series_opts,
     }
 
 
@@ -662,26 +741,35 @@ def _build_flight_section(client, job_id, meta: dict, key, summary_items: list) 
             phase_sel = ui.select(phases, value=state['phase'], label='Phase',
                                   on_change=lambda _: _on_phase()).props('dense') \
                 if len(phases) > 1 else None
-            case_sel = ui.select([], label='Case').props('dense').style('min-width:120px')
+            # Multi-select: several cases overlay on the graph; map/3D/download use the first.
+            case_sel = ui.select([], label='Cases', multiple=True) \
+                .props('dense use-chips').style('min-width:200px')
             ui.button('Apply', on_click=lambda: _resolve_cases())
         with ui.row().classes('q-gutter-xs q-mt-xs'):
             ui.label('Quick:').classes('text-caption text-grey q-my-auto')
             ui.button('Nominal', on_click=lambda: _quick('nominal')).props('dense flat')
             ui.button('Farthest 10', on_click=lambda: _quick('farthest')).props('dense flat')
+            ui.label('複数選択で重ね描き（地図/3D/DL は先頭ケース）') \
+                .classes('text-caption text-grey q-my-auto')
         # For small runs the Case dropdown lists every real case (from meta.cases_by_phase); the
-        # selection expression is for narrowing large runs (design §8 / review N-8).
+        # selection expression narrows large runs (design §8 / review N-8).
 
     cards = ui.column().classes('w-full')
 
     def _current_phase():
         return phase_sel.value if phase_sel is not None else state['phase']
 
+    def _selected_cases():
+        v = case_sel.value
+        if isinstance(v, list):
+            return [c for c in v if c is not None]
+        return [v] if v is not None else []
+
     def _enumerate_small():
         # Populate the dropdown from the real per-phase case numbers, no server round-trip.
         cases = list(cases_by_phase.get(_current_phase(), []))
         state['phase'] = _current_phase()
-        case_sel.set_options(cases, value=cases[0] if cases else None)
-        state['case'] = cases[0] if cases else None
+        case_sel.set_options(cases, value=[cases[0]] if cases else [])
         _draw_case()
 
     def _on_phase():
@@ -700,23 +788,29 @@ def _build_flight_section(client, job_id, meta: dict, key, summary_items: list) 
         try:
             resolved = client.result_cases(job_id, state['select'])
         except Exception as exc:
-            case_sel.set_options([])
+            case_sel.set_options([], value=[])
             cards.clear()
             with cards:
                 ui.label(f'Selection error: {exc}').classes('text-negative text-caption')
             return
         cases = [int(c['case']) for c in resolved]
-        case_sel.set_options(cases, value=cases[0] if cases else None)
-        state['case'] = cases[0] if cases else None
+        # Default to overlaying the whole resolved set (e.g. Farthest 10 → 10 lines); the user can
+        # prune in the dropdown. Cap the auto-overlay so a huge selection isn't drawn by accident.
+        default = cases[:MAX_OVERLAY_CASES]
+        case_sel.set_options(cases, value=default)
         _draw_case()
 
     def _draw_case():
         cards.clear()
-        case = case_sel.value if case_sel.value is not None else state['case']
-        if case is None:
+        cases = _selected_cases()
+        if not cases:
             return
+        if len(cases) > MAX_OVERLAY_CASES:
+            cases = cases[:MAX_OVERLAY_CASES]
+        primary = cases[0]
+        id_expr = 'id:' + ','.join(str(c) for c in cases)
         try:
-            ex = client.extract(job_id, f'id:{case}', phase=state['phase'], max_points=2000)
+            ex = client.extract(job_id, id_expr, phase=state['phase'], max_points=2000)
         except Exception as exc:
             with cards:
                 ui.label(f'Extract error: {exc}').classes('text-negative text-caption')
@@ -726,15 +820,19 @@ def _build_flight_section(client, job_id, meta: dict, key, summary_items: list) 
             with cards:
                 ui.label('No flight log for this case/phase.').classes('text-caption text-grey')
             return
-        df = extract_log_to_df(logs[0])
+        series = [(f"case {lg.get('case', i)}", extract_log_to_df(lg)) for i, lg in enumerate(logs)]
+        primary_df = series[0][1]
         with cards:
-            _build_download_row(client, job_id, state, case)
-            if {'Latitude [deg]', 'Longitude [deg]'}.issubset(df.columns):
-                _build_map_card(df, f'{key}-{case}', summary_items)
-            if {'Latitude [deg]', 'Altitude [m]'}.issubset(df.columns):
-                _build_cesium_card(df, summary_items, f'{key}-{case}')
+            _build_download_row(client, job_id, state, primary)
+            if len(series) > 1:
+                ui.label(f'{len(series)} cases overlaid — Ground Track / 3D show case {primary}.') \
+                    .classes('text-caption text-grey')
+            if {'Latitude [deg]', 'Longitude [deg]'}.issubset(primary_df.columns):
+                _build_map_card(primary_df, f'{key}-{primary}', summary_items)
+            if {'Latitude [deg]', 'Altitude [m]'}.issubset(primary_df.columns):
+                _build_cesium_card(primary_df, summary_items, f'{key}-{primary}')
             try:
-                _build_graph_card([(f'case {case}', df)])
+                _build_graph_card(series)
             except Exception as exc:
                 ui.label(f'Graph error: {exc}').classes('text-negative')
 
@@ -1095,58 +1193,54 @@ def _build_cesium_card(df: pd.DataFrame, summary_items: list | None, key):
 
 
 def _build_graph_card(logs: list):
-    """logs: [(label, DataFrame)] already fetched (decimated) via the extract API. Column
-    switching is client-side over the in-memory frame; no server round-trip per switch
-    (design §6 / review B10)."""
+    """logs: [(label, DataFrame)] already fetched (decimated) via the extract API. When more than
+    one case is passed they are OVERLAID on one chart (nominal vs farthest, etc.); axis/preset
+    switching is client-side over the in-memory frames, no server round-trip (design §6 / B10).
+
+    Common columns are the intersection across all cases so a chosen axis exists in every series.
+    """
     if not logs:
         return
-    state: dict = {'df': logs[0][1]}
+    common = list(logs[0][1].columns)
+    for _lbl, df in logs[1:]:
+        cset = set(df.columns)
+        common = [c for c in common if c in cset]
+    if not common:
+        common = list(logs[0][1].columns)
 
     with ui.card().classes('w-full'):
-        ui.label('Interactive Graph').classes('text-subtitle2 q-mb-xs')
+        title = 'Interactive Graph' + (f'  —  {len(logs)} cases overlaid' if len(logs) > 1 else '')
+        ui.label(title).classes('text-subtitle2 q-mb-xs')
 
-        if len(logs) > 1:
-            names = [lbl for lbl, _ in logs]
-
-            def _on_csv(e):
-                idx = names.index(e.value) if e.value in names else 0
-                state['df'] = logs[idx][1]
-                _rebuild_presets()
-                _refresh()
-
-            ui.select(names, value=names[0], label='Flight log',
-                      on_change=_on_csv).classes('q-mb-xs')
-
-        cols = list(state['df'].columns)
-        default_x = 'Time [s]'     if 'Time [s]'     in cols else cols[0]
-        default_y = 'Altitude [m]' if 'Altitude [m]'  in cols else cols[1]
+        default_x = 'Time [s]'     if 'Time [s]'     in common else common[0]
+        default_y = 'Altitude [m]' if 'Altitude [m]' in common else \
+            (common[1] if len(common) > 1 else common[0])
 
         with ui.row().classes('items-center q-gutter-xs q-mb-xs'):
             ui.label('Preset:').classes('text-caption text-grey q-my-auto')
             preset_row = ui.row().classes('q-gutter-xs')
 
         with ui.row().classes('q-gutter-md q-mb-sm'):
-            x_sel = ui.select(cols, value=default_x, label='X Axis',
+            x_sel = ui.select(common, value=default_x, label='X Axis',
                               on_change=lambda _: _refresh()).style('min-width:230px')
-            y_sel = ui.select(cols, value=default_y, label='Y Axis',
+            y_sel = ui.select(common, value=default_y, label='Y Axis',
                               on_change=lambda _: _refresh()).style('min-width:230px')
 
-        chart = ui.echart(_echart_opts(state['df'], default_x, default_y)).style(
+        chart = ui.echart(_echart_multi_opts(logs, default_x, default_y)).style(
             'width:100%;height:500px'
         )
 
         def _refresh():
-            df, xc, yc = state['df'], x_sel.value, y_sel.value
-            if xc in df.columns and yc in df.columns:
-                chart.options.update(_echart_opts(df, xc, yc))
+            xc, yc = x_sel.value, y_sel.value
+            if all(xc in df.columns and yc in df.columns for _lbl, df in logs):
+                chart.options.update(_echart_multi_opts(logs, xc, yc))
                 chart.update()
 
         def _rebuild_presets():
             preset_row.clear()
-            cols_now = list(state['df'].columns)
             with preset_row:
                 for pn, px, py in _PRESETS:
-                    if px in cols_now and py in cols_now:
+                    if px in common and py in common:
                         def _click(x=px, y=py):
                             x_sel.set_value(x)
                             y_sel.set_value(y)

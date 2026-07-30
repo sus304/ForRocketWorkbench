@@ -105,6 +105,33 @@ def test_echart_opts_has_series_data():
     assert len(opts["series"][0]["data"]) == 3
 
 
+def test_echart_multi_opts_overlays_one_series_per_case():
+    a = pd.DataFrame({"Time [s]": [0, 1, 2], "Altitude [m]": [0, 10, 20]})
+    b = pd.DataFrame({"Time [s]": [0, 1, 2], "Altitude [m]": [0, 5, 8]})
+    opts = render._echart_multi_opts([("case 0", a), ("case 3", b)], "Time [s]", "Altitude [m]")
+    assert [s["name"] for s in opts["series"]] == ["case 0", "case 3"]
+    assert opts["legend"]["data"] == ["case 0", "case 3"]
+    assert len(opts["series"][0]["data"]) == 3
+
+
+def test_echart_multi_opts_single_series_hides_legend():
+    a = pd.DataFrame({"Time [s]": [0, 1], "Altitude [m]": [0, 10]})
+    opts = render._echart_multi_opts([("case 0", a)], "Time [s]", "Altitude [m]")
+    assert len(opts["series"]) == 1
+    assert opts["legend"] == {"show": False}
+
+
+def test_echart_multi_opts_shared_km_rescale_across_cases():
+    # A column in [m] with a global max >= 10 km rescales to km for every overlaid series.
+    a = pd.DataFrame({"Time [s]": [0, 1], "Downrange [m]": [0, 20000]})
+    b = pd.DataFrame({"Time [s]": [0, 1], "Downrange [m]": [0, 5000]})
+    opts = render._echart_multi_opts([("a", a), ("b", b)], "Time [s]", "Downrange [m]")
+    assert opts["yAxis"]["name"] == "Downrange [km]"
+    # 20000 m -> 20 km, 5000 m -> 5 km (both scaled by the same factor)
+    assert opts["series"][0]["data"][1][1] == 20.0
+    assert opts["series"][1]["data"][1][1] == 5.0
+
+
 def test_mc_histogram_opts_reports_mean_std():
     opts = render._mc_histogram_opts([1.0, 2.0, 3.0, 4.0, 5.0], "Apogee", "km", "#42a5f5")
     assert "μ" in opts["title"]["subtext"] and "σ" in opts["title"]["subtext"]
