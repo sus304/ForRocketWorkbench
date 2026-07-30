@@ -11,6 +11,8 @@ re-uploading.
 """
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 import re
 import sys
@@ -79,26 +81,39 @@ def _upload_filename(e) -> str:
     return ''
 
 
-def _upload_content(e):
-    """Return a SYNC readable byte-source from a NiceGUI upload event, across versions.
+def _as_bytes(data) -> bytes:
+    if isinstance(data, str):
+        return data.encode()
+    if isinstance(data, (bytes, bytearray)):
+        return bytes(data)
+    return b'' if data is None else bytes(data)
 
-    Older: `e.content` (a file object) / `e.contents[0]`. Newer: `e.file`, a Starlette UploadFile
-    whose SYNC underlying stream is `e.file.file` (its own `.read()` is a coroutine — unusable from
-    this sync handler, so we must reach the wrapped file, not call the UploadFile)."""
-    c = getattr(e, 'content', None)
-    if c is not None:
-        return c
-    contents = getattr(e, 'contents', None)
-    if contents:
-        return contents[0]
-    f = getattr(e, 'file', None)
-    if f is not None:
-        inner = getattr(f, 'file', None)   # Starlette UploadFile.file — the sync stream
-        if inner is not None:
-            return inner
-        if isinstance(f, (bytes, bytearray)) or hasattr(f, 'read'):
-            return f
-    return None
+
+async def _read_upload(e) -> bytes:
+    """Read an upload's bytes across NiceGUI majors.
+
+    NiceGUI 3.x: `e.file` is a FileUpload whose `read()` is a *coroutine* (no sync accessor), so it
+    must be awaited — which is why the upload handlers are async. NiceGUI 2.x: `e.content` (or
+    `e.contents[0]`) is a sync file object, possibly already at EOF (the framework measured it), so
+    we seek(0) first. Raw bytes/str are handled too. Never touch a fixed attribute (the event shape
+    differs by version)."""
+    f = getattr(e, 'file', None)                       # 3.x FileUpload
+    if f is not None and hasattr(f, 'read'):
+        res = f.read()
+        return _as_bytes(await res if inspect.isawaitable(res) else res)
+    c = getattr(e, 'content', None)                    # 2.x sync file object
+    if c is None:
+        contents = getattr(e, 'contents', None)
+        c = contents[0] if contents else None
+    if c is None:
+        return b''
+    if isinstance(c, (bytes, bytearray)):
+        return bytes(c)
+    try:
+        c.seek(0)
+    except Exception:
+        pass
+    return _as_bytes(c.read())
 
 
 def _describe_upload(e) -> str:
@@ -112,21 +127,11 @@ def _describe_upload(e) -> str:
     return f"event attrs: {attrs}; file type={type(f).__name__} attrs={fattrs}"
 
 
-def _read_upload_bytes(content) -> bytes:
-    """Read an upload's bytes robustly across NiceGUI versions: the file object may already be at
-    EOF (the framework read it to measure size), or `content` may itself be raw bytes/str."""
-    if content is None:
-        return b''
-    if isinstance(content, (bytes, bytearray)):
-        return bytes(content)
-    try:
-        content.seek(0)
-    except Exception:
-        pass
-    data = content.read()
-    if isinstance(data, str):
-        data = data.encode()
-    return data or b''
+async def _upload_to_store(fn, *args) -> None:
+    """Run a blocking ServiceClient upload off the event loop (the upload handlers are async so
+    they can await the 3.x FileUpload read; the HTTP client call must not block the loop)."""
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: fn(*args))
 
 
 @ui.page('/projects')
@@ -159,7 +164,7 @@ def projects_page():
 
                 ui.button('Create empty', on_click=_create).props('dense')
 
-                def _on_upload(e):
+                async def _on_upload(e):
                     # Upload a project ZIP; the server safe-unzips and validates it. The name comes
                     # from the field or the file stem, sanitised to the store's allowed charset so
                     # a Japanese/spaced filename doesn't fail with a cryptic, easy-to-miss error.
@@ -169,11 +174,11 @@ def projects_page():
                     _log(f"upload received: file={fname!r} raw_name={raw!r} -> name={name!r} "
                          f"({_describe_upload(e)})")
                     try:
-                        data = _read_upload_bytes(_upload_content(e))
+                        data = await _read_upload(e)
                         if not data:
                             _fail('Upload', ValueError('uploaded file was empty or unreadable'))
                             return
-                        _client().upload_project(name, data)
+                        await _upload_to_store(_client().upload_project, name, data)
                         _log(f"stored project {name!r} ({len(data)} bytes)")
                         msg = f'Uploaded as "{name}".'
                         if name != raw.strip():
@@ -352,17 +357,17 @@ def _file_manager(name: str):
                 for f in files:
                     _file_row(name, f, referenced, listing)
 
-        def _on_upload(e):
+        async def _on_upload(e):
             fname = _upload_filename(e)
             target = (target_in.value or fname).strip()
             _log(f"file upload received: project={name!r} file={fname!r} target={target!r} "
                  f"({_describe_upload(e)})")
             try:
-                data = _read_upload_bytes(_upload_content(e))
+                data = await _read_upload(e)
                 if not data:
                     _fail('Upload', ValueError('uploaded file was empty or unreadable'))
                     return
-                _client().upload_project_file(name, target, data)
+                await _upload_to_store(_client().upload_project_file, name, target, data)
                 _log(f"stored file {target!r} in project {name!r} ({len(data)} bytes)")
                 ui.notify(f'Uploaded {target}.', type='positive')
                 target_in.set_value('')

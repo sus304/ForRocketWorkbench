@@ -1,70 +1,39 @@
 """Pure helpers behind the projects UI (web.service_ui.projects_ui). The NiceGUI page bodies are
-manual/e2e; here we lock name sanitisation, which decides whether an uploaded project lands with a
-valid store name instead of failing far away with a cryptic 422."""
+manual/e2e; here we lock name sanitisation and the version-agnostic upload reading, which is what
+broke across the NiceGUI 2.x (local) / 3.x (VM) split: 2.x gives a sync `e.content`, 3.x gives an
+`e.file` whose `read()` is a coroutine."""
 from __future__ import annotations
 
+import asyncio
 import io
 import re
 
-from web.service_ui.projects_ui import (
-    _sanitize_name, _upload_filename, _upload_content, _read_upload_bytes,
-)
+from web.service_ui.projects_ui import _sanitize_name, _upload_filename, _read_upload
 
 _NAME_OK = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 class _Evt:
-    """Minimal stand-in for a NiceGUI upload event with an arbitrary attribute set — the real
-    class differs across NiceGUI versions (the VM lacked `.name`, which crashed the handler)."""
+    """Stand-in for a NiceGUI upload event; the real class differs across versions."""
     def __init__(self, **attrs):
         self.__dict__.update(attrs)
 
 
-def test_upload_filename_across_versions():
-    assert _upload_filename(_Evt(name="a.zip")) == "a.zip"
-    assert _upload_filename(_Evt(file_name="b.zip")) == "b.zip"
-    assert _upload_filename(_Evt(filename="c.zip")) == "c.zip"
-    assert _upload_filename(_Evt(names=["d.zip", "e.zip"])) == "d.zip"
-    assert _upload_filename(_Evt(type="application/zip")) == ""  # no name attr at all → no crash
+class _AsyncFile:
+    """NiceGUI 3.x FileUpload shape: `.name` and an async `read()`, no sync accessor."""
+    def __init__(self, name, data):
+        self.name = name
+        self._data = data
+
+    async def read(self):
+        return self._data
 
 
-class _UploadFile:
-    """Stand-in for Starlette's UploadFile as newer NiceGUI hands it to on_upload: a `.filename`
-    and a SYNC underlying stream `.file` (its own read() would be async)."""
-    def __init__(self, filename, data):
-        self.filename = filename
-        self.file = io.BytesIO(data)
+def _run(coro):
+    return asyncio.new_event_loop().run_until_complete(coro)
 
 
-def test_upload_content_across_versions():
-    buf = io.BytesIO(b"data")
-    assert _upload_content(_Evt(content=buf)) is buf
-    buf2 = io.BytesIO(b"x")
-    assert _upload_content(_Evt(contents=[buf2])) is buf2
-    assert _upload_content(_Evt(name="only-name.zip")) is None  # no content → None, no crash
-
-
-def test_upload_event_with_single_file_attribute():
-    # The VM's NiceGUI: event exposes only client/file/sender; the file is a Starlette UploadFile.
-    uf = _UploadFile("MyRocket.zip", b"zip-bytes")
-    e = _Evt(file=uf, client=None, sender=None)
-    assert _upload_filename(e) == "MyRocket.zip"
-    assert _upload_content(e) is uf.file           # the sync inner stream, not the UploadFile
-    assert _read_upload_bytes(_upload_content(e)) == b"zip-bytes"
-
-
-def test_read_upload_bytes_handles_eof_stream():
-    buf = io.BytesIO(b"payload")
-    buf.read()  # framework already consumed it → cursor at EOF
-    assert _read_upload_bytes(buf) == b"payload"  # we seek(0) first
-
-
-def test_read_upload_bytes_handles_raw_and_str_and_none():
-    assert _read_upload_bytes(b"raw") == b"raw"
-    assert _read_upload_bytes(bytearray(b"ba")) == b"ba"
-    assert _read_upload_bytes(io.StringIO("text")) == b"text"
-    assert _read_upload_bytes(None) == b""
-
+# ── name sanitisation ────────────────────────────────────────────────────────────
 
 def test_sanitize_keeps_valid_names():
     assert _sanitize_name("MyRocket") == "MyRocket"
@@ -77,7 +46,6 @@ def test_sanitize_replaces_spaces_and_symbols():
 
 
 def test_sanitize_falls_back_when_empty_after_stripping():
-    # a fully non-ASCII name has nothing left → a usable default, never an invalid store name
     assert _sanitize_name("日本語") == "project"
     assert _sanitize_name("") == "project"
 
@@ -89,3 +57,40 @@ def test_sanitize_truncates_to_64():
 def test_sanitize_output_is_always_a_valid_store_name():
     for raw in ["bad name!", "日本語", "", "a/../b", "x" * 100, "..", "---", "ロケットA"]:
         assert _NAME_OK.match(_sanitize_name(raw)), raw
+
+
+# ── filename across NiceGUI versions ──────────────────────────────────────────────
+
+def test_upload_filename_2x_shapes():
+    assert _upload_filename(_Evt(name="a.zip")) == "a.zip"
+    assert _upload_filename(_Evt(file_name="b.zip")) == "b.zip"
+    assert _upload_filename(_Evt(names=["d.zip"])) == "d.zip"
+    assert _upload_filename(_Evt(type="application/zip")) == ""  # nothing usable → no crash
+
+
+def test_upload_filename_3x_file_attribute():
+    # VM's NiceGUI: only client/file/sender; filename lives on the FileUpload as `.name`.
+    assert _upload_filename(_Evt(file=_AsyncFile("MyRocket.zip", b"z"))) == "MyRocket.zip"
+
+
+# ── byte reading across NiceGUI versions (async) ──────────────────────────────────
+
+def test_read_upload_3x_async_file():
+    e = _Evt(file=_AsyncFile("p.zip", b"zip-bytes"), client=None, sender=None)
+    assert _run(_read_upload(e)) == b"zip-bytes"
+
+
+def test_read_upload_2x_sync_content():
+    assert _run(_read_upload(_Evt(content=io.BytesIO(b"data")))) == b"data"
+
+
+def test_read_upload_2x_content_at_eof_is_rewound():
+    buf = io.BytesIO(b"payload")
+    buf.read()  # framework already consumed it → cursor at EOF
+    assert _run(_read_upload(_Evt(content=buf))) == b"payload"
+
+
+def test_read_upload_handles_raw_and_missing():
+    assert _run(_read_upload(_Evt(content=b"raw"))) == b"raw"
+    assert _run(_read_upload(_Evt(contents=[io.BytesIO(b"multi")]))) == b"multi"
+    assert _run(_read_upload(_Evt(type="x"))) == b""  # no content/file → empty, no crash
