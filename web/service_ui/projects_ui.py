@@ -12,6 +12,9 @@ re-uploading.
 from __future__ import annotations
 
 import json
+import re
+import sys
+import traceback
 
 from nicegui import ui
 
@@ -20,9 +23,40 @@ from web.service_ui.layout import service_header
 
 _MODES = ['trajectory', 'area', 'montecarlo', 'sensitivity']
 
+# Server-stored project names are constrained to this by service.projects (must mirror it). A
+# browser upload named from a zip whose filename has spaces/Japanese/etc. would otherwise fail
+# far away with a cryptic 422 — we sanitise to a valid name up front instead.
+_NAME_OK = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_NAME_BAD = re.compile(r"[^A-Za-z0-9_-]+")
+
 
 def _client():
     return config.get_client()
+
+
+def _log(msg: str):
+    """Write to the process stderr so it lands in the service journal (journalctl -u
+    forrocket-webui). NiceGUI/uvicorn does not surface arbitrary loggers by default, so a plain
+    flushed print is the reliable record."""
+    print(f"[projects_ui] {msg}", file=sys.stderr, flush=True)
+
+
+def _fail(action: str, exc: Exception):
+    """Surface a failed action in the browser (persistent — errors must not auto-dismiss and be
+    missed) AND log it server-side, so an action that 'did nothing with no error' is never silent
+    again."""
+    _log(f"{action} failed: {exc!r}\n{traceback.format_exc()}")
+    try:
+        ui.notify(f'{action} failed: {exc}', type='negative', multi_line=True,
+                  timeout=0, close_button='Dismiss')
+    except Exception:  # notifying may itself fail outside a live client context
+        pass
+
+
+def _sanitize_name(raw: str) -> str:
+    """Coerce a proposed project name into service.projects' allowed set (A-Za-z0-9_-, <=64)."""
+    s = _NAME_BAD.sub("_", (raw or "").strip()).strip("_-")
+    return s[:64] or "project"
 
 
 @ui.page('/projects')
@@ -37,25 +71,46 @@ def projects_page():
                 new_name = ui.input('New project name').props('dense').style('min-width:200px')
 
                 def _create():
+                    raw = (new_name.value or '').strip()
+                    if not raw:
+                        ui.notify('Enter a project name first.', type='warning')
+                        return
+                    name = _sanitize_name(raw)
                     try:
-                        _client().create_project((new_name.value or '').strip())
-                        ui.notify('Created.', type='positive')
+                        _client().create_project(name)
+                        msg = f'Created "{name}".'
+                        if name != raw:
+                            msg += ' (name adjusted to letters/digits/_/- only)'
+                        ui.notify(msg, type='positive')
+                        new_name.set_value('')
                         listing.refresh()
                     except Exception as exc:
-                        ui.notify(f'Create failed: {exc}', type='negative')
+                        _fail('Create', exc)
 
                 ui.button('Create empty', on_click=_create).props('dense')
 
                 def _on_upload(e):
-                    # Upload a project ZIP; the server safe-unzips and validates it. Name comes
-                    # from the field (or the file stem).
-                    name = (new_name.value or e.name.rsplit('.', 1)[0]).strip()
+                    # Upload a project ZIP; the server safe-unzips and validates it. The name comes
+                    # from the field or the file stem, sanitised to the store's allowed charset so
+                    # a Japanese/spaced filename doesn't fail with a cryptic, easy-to-miss error.
+                    raw = (new_name.value or e.name.rsplit('.', 1)[0])
+                    name = _sanitize_name(raw)
+                    _log(f"upload received: file={e.name!r} raw_name={raw!r} -> name={name!r}")
                     try:
-                        _client().upload_project(name, e.content.read())
-                        ui.notify(f'Uploaded {name}.', type='positive')
+                        data = e.content.read()
+                        if not data:
+                            _fail('Upload', ValueError('uploaded file was empty'))
+                            return
+                        _client().upload_project(name, data)
+                        _log(f"stored project {name!r} ({len(data)} bytes)")
+                        msg = f'Uploaded as "{name}".'
+                        if name != raw.strip():
+                            msg += ' (name adjusted to letters/digits/_/- only)'
+                        ui.notify(msg, type='positive')
+                        new_name.set_value('')
                         listing.refresh()
                     except Exception as exc:
-                        ui.notify(f'Upload failed: {exc}', type='negative', multi_line=True)
+                        _fail('Upload', exc)
 
                 ui.upload(label='Upload .zip', auto_upload=True, on_upload=_on_upload) \
                     .props('accept=.zip').classes('max-w-xs')
@@ -91,7 +146,7 @@ def _project_row(name: str, listing):
                         res = _client().submit_project(n, ms.value)
                         ui.notify(f'Job #{res["id"]} queued ({ms.value}).', type='positive')
                     except Exception as exc:
-                        ui.notify(f'Submit failed: {exc}', type='negative', multi_line=True)
+                        _fail('Submit', exc)
 
                 ui.button('Submit', icon='send', on_click=lambda n=name, m=mode_sel: _submit(n, m)) \
                     .props('dense color=primary')
@@ -110,7 +165,7 @@ def _download(name: str):
         data = _client().download_project(name)
         ui.download(data, f'{name}.zip')
     except Exception as exc:
-        ui.notify(f'Download failed: {exc}', type='negative')
+        _fail('Download', exc)
 
 
 def _copy_dialog(name: str, listing):
@@ -125,7 +180,7 @@ def _copy_dialog(name: str, listing):
                 dlg.close()
                 listing.refresh()
             except Exception as exc:
-                ui.notify(f'Copy failed: {exc}', type='negative')
+                _fail('Copy', exc)
 
         with ui.row():
             ui.button('Copy', on_click=_do).props('color=primary')
@@ -144,7 +199,7 @@ def _delete(name: str, listing):
                     dlg.close()
                     listing.refresh()
                 except Exception as exc:
-                    ui.notify(f'Delete failed: {exc}', type='negative')
+                    _fail('Delete', exc)
             ui.button('Delete', on_click=_do).props('color=negative')
             ui.button('Cancel', on_click=dlg.close).props('flat')
     dlg.open()
@@ -227,13 +282,19 @@ def _file_manager(name: str):
 
         def _on_upload(e):
             target = (target_in.value or e.name).strip()
+            _log(f"file upload received: project={name!r} file={e.name!r} target={target!r}")
             try:
-                _client().upload_project_file(name, target, e.content.read())
+                data = e.content.read()
+                if not data:
+                    _fail('Upload', ValueError('uploaded file was empty'))
+                    return
+                _client().upload_project_file(name, target, data)
+                _log(f"stored file {target!r} in project {name!r} ({len(data)} bytes)")
                 ui.notify(f'Uploaded {target}.', type='positive')
                 target_in.set_value('')
                 listing.refresh()
             except Exception as exc:
-                ui.notify(f'Upload failed: {exc}', type='negative', multi_line=True)
+                _fail('Upload', exc)
 
         with ui.row().classes('items-center q-gutter-sm q-mt-xs'):
             target_in = ui.input('Save as（空欄=ファイル名／既存名を入力で差し替え）') \
@@ -264,7 +325,7 @@ def _dl_file(name: str, path: str):
         data = _client().download_project_file(name, path)
         ui.download(data, path.rsplit('/', 1)[-1])
     except Exception as exc:
-        ui.notify(f'Download failed: {exc}', type='negative')
+        _fail('Download', exc)
 
 
 def _del_file(name: str, path: str, listing):
@@ -278,7 +339,7 @@ def _del_file(name: str, path: str, listing):
                     dlg.close()
                     listing.refresh()
                 except Exception as exc:
-                    ui.notify(f'Delete failed: {exc}', type='negative')
+                    _fail('Delete', exc)
             ui.button('Delete', on_click=_do).props('color=negative')
             ui.button('Cancel', on_click=dlg.close).props('flat')
     dlg.open()
@@ -348,8 +409,7 @@ def project_edit_page(name: str):
                         json.dumps(files_out[fname], indent=4, ensure_ascii=False))
                 ui.notify('Saved.', type='positive')
             except Exception as exc:
-                ui.notify(f'Save failed (reload if it changed elsewhere): {exc}',
-                          type='negative', multi_line=True)
+                _fail('Save (reload if it changed elsewhere)', exc)
 
         with ui.row().classes('q-mt-md q-gutter-sm items-center'):
             ui.button('Save', icon='save', on_click=_save).props('color=primary')
