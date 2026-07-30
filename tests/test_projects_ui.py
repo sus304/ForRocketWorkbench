@@ -3,11 +3,35 @@ manual/e2e; here we lock name sanitisation, which decides whether an uploaded pr
 valid store name instead of failing far away with a cryptic 422."""
 from __future__ import annotations
 
+import io
 import re
 
-from web.service_ui.projects_ui import _sanitize_name
+from web.service_ui.projects_ui import _sanitize_name, _upload_filename, _upload_content
 
 _NAME_OK = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+class _Evt:
+    """Minimal stand-in for a NiceGUI upload event with an arbitrary attribute set — the real
+    class differs across NiceGUI versions (the VM lacked `.name`, which crashed the handler)."""
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+
+
+def test_upload_filename_across_versions():
+    assert _upload_filename(_Evt(name="a.zip")) == "a.zip"
+    assert _upload_filename(_Evt(file_name="b.zip")) == "b.zip"
+    assert _upload_filename(_Evt(filename="c.zip")) == "c.zip"
+    assert _upload_filename(_Evt(names=["d.zip", "e.zip"])) == "d.zip"
+    assert _upload_filename(_Evt(type="application/zip")) == ""  # no name attr at all → no crash
+
+
+def test_upload_content_across_versions():
+    buf = io.BytesIO(b"data")
+    assert _upload_content(_Evt(content=buf)) is buf
+    buf2 = io.BytesIO(b"x")
+    assert _upload_content(_Evt(contents=[buf2])) is buf2
+    assert _upload_content(_Evt(name="only-name.zip")) is None  # no content → None, no crash
 
 
 def test_sanitize_keeps_valid_names():

@@ -59,6 +59,31 @@ def _sanitize_name(raw: str) -> str:
     return s[:64] or "project"
 
 
+def _upload_filename(e) -> str:
+    """Filename from a NiceGUI upload event, tolerant of version differences. The field has been
+    `name` (2.x) but differs across releases; the VM and local envs run different NiceGUI versions,
+    so never touch a fixed attribute — try the known spellings, then multi-upload, else ''."""
+    for attr in ('name', 'file_name', 'filename'):
+        v = getattr(e, attr, None)
+        if v:
+            return str(v)
+    names = getattr(e, 'names', None)
+    if names:
+        return str(names[0])
+    return ''
+
+
+def _upload_content(e):
+    """Readable file object from a NiceGUI upload event, tolerant of version differences."""
+    c = getattr(e, 'content', None)
+    if c is not None:
+        return c
+    contents = getattr(e, 'contents', None)
+    if contents:
+        return contents[0]
+    return None
+
+
 @ui.page('/projects')
 def projects_page():
     service_header(active='Projects')
@@ -93,13 +118,16 @@ def projects_page():
                     # Upload a project ZIP; the server safe-unzips and validates it. The name comes
                     # from the field or the file stem, sanitised to the store's allowed charset so
                     # a Japanese/spaced filename doesn't fail with a cryptic, easy-to-miss error.
-                    raw = (new_name.value or e.name.rsplit('.', 1)[0])
+                    fname = _upload_filename(e)
+                    raw = (new_name.value or fname.rsplit('.', 1)[0])
                     name = _sanitize_name(raw)
-                    _log(f"upload received: file={e.name!r} raw_name={raw!r} -> name={name!r}")
+                    _log(f"upload received: file={fname!r} raw_name={raw!r} -> name={name!r} "
+                         f"(event attrs: {sorted(a for a in dir(e) if not a.startswith('_'))})")
                     try:
-                        data = e.content.read()
+                        content = _upload_content(e)
+                        data = content.read() if content is not None else b''
                         if not data:
-                            _fail('Upload', ValueError('uploaded file was empty'))
+                            _fail('Upload', ValueError('uploaded file was empty or unreadable'))
                             return
                         _client().upload_project(name, data)
                         _log(f"stored project {name!r} ({len(data)} bytes)")
@@ -281,12 +309,14 @@ def _file_manager(name: str):
                     _file_row(name, f, referenced, listing)
 
         def _on_upload(e):
-            target = (target_in.value or e.name).strip()
-            _log(f"file upload received: project={name!r} file={e.name!r} target={target!r}")
+            fname = _upload_filename(e)
+            target = (target_in.value or fname).strip()
+            _log(f"file upload received: project={name!r} file={fname!r} target={target!r}")
             try:
-                data = e.content.read()
+                content = _upload_content(e)
+                data = content.read() if content is not None else b''
                 if not data:
-                    _fail('Upload', ValueError('uploaded file was empty'))
+                    _fail('Upload', ValueError('uploaded file was empty or unreadable'))
                     return
                 _client().upload_project_file(name, target, data)
                 _log(f"stored file {target!r} in project {name!r} ({len(data)} bytes)")
