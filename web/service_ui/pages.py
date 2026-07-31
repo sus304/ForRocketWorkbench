@@ -20,7 +20,7 @@ from typing import Optional
 
 from nicegui import ui
 
-from web.service_ui.layout import service_header
+from web.service_ui.layout import notify, service_header
 from web.service_ui import config, render
 # Runs are submitted from the Projects page (projects_ui) now; this module has no dependency on
 # the retired projects DB / legacy services.
@@ -233,7 +233,7 @@ def _job_row(job: dict, refresh=None, ask_confirm=None):
                 try:
                     client().set_memo(j, e.value or '')
                 except Exception as exc:
-                    ui.notify(f'Memo save failed: {exc}', type='negative')
+                    notify(f'Memo save failed: {exc}', type='negative')
             ui.input('memo', value=job.get('memo') or '') \
                 .props('dense borderless').classes('text-caption') \
                 .on('blur', _save_memo).on('keydown.enter', _save_memo)
@@ -255,20 +255,20 @@ def _job_row(job: dict, refresh=None, ask_confirm=None):
 def _cancel(job_id: int):
     try:
         client().cancel(job_id)
-        ui.notify(f'Job #{job_id} cancel requested.', type='info')
+        notify(f'Job #{job_id} cancel requested.', type='info')
     except Exception as exc:
-        ui.notify(f'Cancel failed: {exc}', type='negative')
+        notify(f'Cancel failed: {exc}', type='negative')
 
 
 def _delete_job(job_id: int, refresh=None, ask_confirm=None):
     def _do():
         try:
             client().delete_job(job_id)
-            ui.notify(f'Job #{job_id} deleted.', type='warning')
+            notify(f'Job #{job_id} deleted.', type='warning')
             if refresh:
                 refresh()
         except Exception as exc:
-            ui.notify(f'Delete failed: {exc}', type='negative', multi_line=True)
+            notify(f'Delete failed: {exc}', type='negative', multi_line=True)
 
     msg = (f'Delete job #{job_id}? Its results/work directory will be removed. '
            'This cannot be undone.')

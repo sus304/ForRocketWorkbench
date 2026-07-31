@@ -22,7 +22,7 @@ import traceback
 from nicegui import ui
 
 from web.service_ui import config, config_edit, config_forms
-from web.service_ui.layout import service_header
+from web.service_ui.layout import notify, service_header
 
 _MODES = ['trajectory', 'area', 'montecarlo', 'sensitivity']
 # area/MC/sensitivity always run in parallel at the physical-core count (service.worker /
@@ -53,7 +53,7 @@ def _fail(action: str, exc: Exception):
     again."""
     _log(f"{action} failed: {exc!r}\n{traceback.format_exc()}")
     try:
-        ui.notify(f'{action} failed: {exc}', type='negative', multi_line=True,
+        notify(f'{action} failed: {exc}', type='negative', multi_line=True,
                   timeout=0, close_button='Dismiss')
     except Exception:  # notifying may itself fail outside a live client context
         pass
@@ -152,7 +152,7 @@ def projects_page():
                 def _create():
                     raw = (new_name.value or '').strip()
                     if not raw:
-                        ui.notify('Enter a project name first.', type='warning')
+                        notify('Enter a project name first.', type='warning')
                         return
                     name = _sanitize_name(raw)
                     try:
@@ -160,7 +160,7 @@ def projects_page():
                         msg = f'Created "{name}".'
                         if name != raw:
                             msg += ' (name adjusted to letters/digits/_/- only)'
-                        ui.notify(msg, type='positive')
+                        notify(msg, type='positive')
                         new_name.set_value('')
                         listing.refresh()
                     except Exception as exc:
@@ -187,7 +187,7 @@ def projects_page():
                         msg = f'Uploaded as "{name}".'
                         if name != raw.strip():
                             msg += ' (name adjusted to letters/digits/_/- only)'
-                        ui.notify(msg, type='positive')
+                        notify(msg, type='positive')
                         new_name.set_value('')
                         listing.refresh()
                     except Exception as exc:
@@ -227,7 +227,7 @@ def _project_row(name: str, listing):
                     mode = mode_sel.value
                     try:
                         res = _client().submit_project(n, mode)
-                        ui.notify(f'Job #{res["id"]} queued ({mode}).', type='positive')
+                        notify(f'Job #{res["id"]} queued ({mode}).', type='positive')
                     except Exception as exc:
                         _fail('Submit', exc)
 
@@ -259,7 +259,7 @@ def _copy_dialog(name: str, listing):
         def _do():
             try:
                 _client().copy_project(name, (dst.value or '').strip())
-                ui.notify('Copied.', type='positive')
+                notify('Copied.', type='positive')
                 dlg.close()
                 listing.refresh()
             except Exception as exc:
@@ -278,7 +278,7 @@ def _delete(name: str, listing):
             def _do():
                 try:
                     _client().delete_project(name)
-                    ui.notify('Deleted.', type='warning')
+                    notify('Deleted.', type='warning')
                     dlg.close()
                     listing.refresh()
                 except Exception as exc:
@@ -454,7 +454,7 @@ def _file_manager(name: str):
                     return
                 await _upload_to_store(_client().upload_project_file, name, target, data)
                 _log(f"stored file {target!r} in project {name!r} ({len(data)} bytes)")
-                ui.notify(f'Uploaded {target}.', type='positive')
+                notify(f'Uploaded {target}.', type='positive')
                 target_in.set_value('')
                 listing.refresh()
             except Exception as exc:
@@ -535,7 +535,7 @@ def _del_file(name: str, path: str, listing):
             def _do():
                 try:
                     _client().delete_project_file(name, path)
-                    ui.notify('Deleted.', type='warning')
+                    notify('Deleted.', type='warning')
                     dlg.close()
                     listing.refresh()
                 except Exception as exc:
@@ -587,7 +587,7 @@ def project_edit_page(name: str):
                     try:
                         files_out[fname] = json.loads(panel['json_area'].value)
                     except json.JSONDecodeError as exc:
-                        ui.notify(f'{fname}: JSON parse error — {exc}', type='negative', multi_line=True)
+                        notify(f'{fname}: JSON parse error — {exc}', type='negative', multi_line=True)
                         return False
                 else:
                     files_out[fname] = panel['form_collect']()
@@ -605,7 +605,7 @@ def project_edit_page(name: str):
 
         def _save():
             if _do_save():
-                ui.notify('Saved.', type='positive')
+                notify('Saved.', type='positive')
 
         def _submit():
             # Save first so the run reflects what's on screen, then queue by project reference.
@@ -614,7 +614,7 @@ def project_edit_page(name: str):
             mode = mode_sel.value
             try:
                 res = _client().submit_project(name, mode)
-                ui.notify(f'Saved & job #{res["id"]} queued ({mode}). See Jobs to track it.',
+                notify(f'Saved & job #{res["id"]} queued ({mode}). See Jobs to track it.',
                           type='positive')
             except Exception as exc:
                 _fail('Submit', exc)

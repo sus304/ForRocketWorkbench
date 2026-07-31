@@ -8,6 +8,17 @@ from __future__ import annotations
 
 from nicegui import ui
 
+# Quasar groups identical toasts and shows a count badge when they stack (e.g. Save pressed
+# repeatedly). Its default badge is red, which reads as an error even on a positive "Saved." — so
+# tint the badge to match the toast type. Passed straight through to Quasar's Notify (badgeColor).
+_BADGE_COLOR = {'positive': 'green-6', 'warning': 'orange-8', 'info': 'blue-7', 'negative': 'red-7'}
+
+
+def notify(message, *, type=None, **kwargs):  # noqa: A002 - mirrors ui.notify's `type` param
+    """ui.notify with a stacked-count badge colour matching the notification type."""
+    kwargs.setdefault('badgeColor', _BADGE_COLOR.get(type, 'grey-7'))
+    ui.notify(message, type=type, **kwargs)
+
 
 def service_header(active: str = "") -> None:
     with ui.header(elevated=True).classes("bg-blue-grey-10 text-white q-px-md items-center"):
