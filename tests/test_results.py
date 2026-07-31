@@ -158,6 +158,38 @@ def test_list_kml_and_path(tmp_path):
         results.kml_path(str(wd), "../../etc/passwd")
 
 
+def test_list_kml_finds_trajectory_iip_at_depth_1(tmp_path):
+    """Flight-path KML lives one level down in result_* and must be discoverable (the viewer's
+    main target), while cases/ (huge in MC runs) is never scanned."""
+    wd = tmp_path / "work_trajectory"
+    (wd / "result_ROCKET-A_0_stage1").mkdir(parents=True)
+    (wd / "result_ROCKET-A_0_stage1" / "_trajectory.kml").write_text("<kml/>")
+    (wd / "result_ROCKET-A_0_stage1" / "_iip.kml").write_text("<kml/>")
+    # a cases/ tree that must NOT be walked
+    (wd / "cases" / "0").mkdir(parents=True)
+    (wd / "cases" / "0" / "_trajectory.kml").write_text("<kml/>")
+
+    cat = results.list_kml(str(wd))
+    assert cat["trajectory"] == "result_ROCKET-A_0_stage1/_trajectory.kml"
+    assert cat["iip"] == "result_ROCKET-A_0_stage1/_iip.kml"
+    # nothing from cases/ leaked in
+    assert not any("cases/" in v for v in cat.values())
+    # kml_path resolves the discovered relative path
+    assert results.kml_path(str(wd), "trajectory").name == "_trajectory.kml"
+    assert results.kml_path(str(wd), "trajectory").parent.name == "result_ROCKET-A_0_stage1"
+
+
+def test_list_kml_qualifies_duplicate_kinds_across_result_dirs(tmp_path):
+    wd = tmp_path / "work_trajectory"
+    for d in ("result_ROCKET-A_0_stage1", "result_ROCKET-A_0_stage2"):
+        (wd / d).mkdir(parents=True)
+        (wd / d / "_trajectory.kml").write_text("<kml/>")
+    cat = results.list_kml(str(wd))
+    # first (sorted) keeps the plain "trajectory" id; the second is dir-qualified → unique keys
+    assert cat["trajectory"] == "result_ROCKET-A_0_stage1/_trajectory.kml"
+    assert cat["result_ROCKET-A_0_stage2_trajectory"] == "result_ROCKET-A_0_stage2/_trajectory.kml"
+
+
 def test_meta_cases_by_phase(mc_work_dir):
     meta = results.result_meta(str(mc_work_dir), "montecarlo")
     assert sorted(meta["cases_by_phase"]["stage1"]) == [0, 1, 2, 3]

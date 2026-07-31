@@ -192,6 +192,10 @@ def result_meta(result_dir: str, mode: str) -> dict:
 # suffix (review N-7). Logical name = "{scenario}_{kind}" (scenario '' -> just kind).
 _ENV_SUFFIX = "_impact_3sigma_envelop.kml"
 _PTS_SUFFIX = "_impact_points.kml"
+# Flight-path KML lives one level down, inside the per-run result_* directory (trajectory jobs):
+#   result_<project>_<case>_stage1/_trajectory.kml , _iip.kml
+_TRAJ_SUFFIX = "_trajectory.kml"
+_IIP_SUFFIX = "_iip.kml"
 
 
 def _classify_kml(fname: str):
@@ -207,7 +211,15 @@ def _classify_kml(fname: str):
 
 
 def list_kml(result_dir: str) -> dict:
-    """Discover MC dispersion KML files as {logical_name: filename}."""
+    """Discover KML files as {logical_name: relative_path}.
+
+    Depth 0: Monte-Carlo dispersion KML (points / envelope / ellipse).
+    Depth 1: the flight-path KML (_trajectory.kml / _iip.kml) inside each result_* directory —
+    this is the viewer's main target. `cases/` is never scanned (an MC run can hold tens of
+    thousands of per-case files there, so a naive recursive walk is not viable — review §10.3).
+    Values are POSIX-relative paths from result_dir; kml_path only ever joins these discovered
+    values, never a caller-supplied name.
+    """
     rd = _require_dir(result_dir)
     out: dict = {}
     for f in sorted(os.listdir(rd)):
@@ -217,17 +229,31 @@ def list_kml(result_dir: str) -> dict:
         if kind is None:
             continue
         out[f"{scen}_{kind}" if scen else kind] = f
+    for d in sorted(rd.glob("result_*")):
+        if not d.is_dir():
+            continue
+        for f in sorted(os.listdir(d)):
+            if f.endswith(_TRAJ_SUFFIX):
+                kind = "trajectory"
+            elif f.endswith(_IIP_SUFFIX):
+                kind = "iip"
+            else:
+                continue
+            # "trajectory"/"iip" for the common single-stage case (matches the manifest ids);
+            # qualify with the result_* dir name if several dirs contribute the same kind.
+            key = kind if kind not in out else f"{d.name}_{kind}"
+            out[key] = f"{d.name}/{f}"
     return out
 
 
 def kml_path(result_dir: str, name: str) -> Path:
     """Resolve a logical KML name to a path, rejecting anything not discovered (no path from
-    the parameter is joined to the FS; only the discovered filename is used)."""
+    the parameter is joined to the FS; only the discovered relative path is used)."""
     catalog = list_kml(result_dir)
-    fn = catalog.get(name)
-    if fn is None:
+    rel = catalog.get(name)
+    if rel is None:
         raise ResultError(f"unknown kml: {name}")
-    return Path(result_dir) / fn
+    return Path(result_dir) / rel
 
 
 def _summary_paths(rd: Path) -> List[str]:
