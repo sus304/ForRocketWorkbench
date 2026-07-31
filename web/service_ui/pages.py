@@ -193,13 +193,15 @@ def _job_row(job: dict):
     # cannot also trigger navigation via event bubbling.
     with ui.item():
         with ui.item_section().props('avatar'):
-            ui.badge(str(jid)).props(f'color={color}')
+            # The id badge is a link to the job detail/result page (common UI: click id/name).
+            ui.badge(str(jid)).props(f'color={color}') \
+                .classes('cursor-pointer').on('click', lambda j=jid: ui.navigate.to(f'/jobs/{j}'))
         with ui.item_section():
             proj = job.get('project')
             head = f'{job["mode"]}  ·  {job.get("model_name") or "—"}'
             if proj:
                 head += f'  ·  📁 {proj}'
-            ui.item_label(head)
+            ui.link(head, f'/jobs/{jid}').classes('text-body1')
             sub = status
             if frac is not None and prog:
                 sub = f'{status} · {prog["done"]:,}/{prog["total"]:,} ({frac:.0%})'

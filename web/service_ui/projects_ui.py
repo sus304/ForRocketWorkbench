@@ -213,7 +213,9 @@ def projects_page():
 def _project_row(name: str, listing):
     with ui.item():
         with ui.item_section():
-            ui.item_label(f'📁 {name}')
+            # The project name is a link to its editor (common UI: click the name to open it),
+            # alongside the explicit Edit button.
+            ui.link(f'📁 {name}', f'/projects/{name}/edit').classes('text-subtitle1')
         with ui.item_section().props('side'):
             with ui.row().classes('items-center q-gutter-xs'):
                 mode_sel = ui.select(_MODES, value='trajectory').props('dense').style('min-width:130px')
