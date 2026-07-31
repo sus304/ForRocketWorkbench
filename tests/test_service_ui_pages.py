@@ -10,14 +10,36 @@ from web.service_ui import pages
 
 def test_filter_jobs_by_mode_and_query():
     jobs = [
-        {"id": 1, "mode": "montecarlo", "model_name": "ROCKET-A", "project": "p1", "memo": "5%"},
-        {"id": 2, "mode": "trajectory", "model_name": "ROCKET-B", "project": "p2", "memo": ""},
-        {"id": 3, "mode": "montecarlo", "model_name": "ROCKET-A", "project": "p3", "memo": "resonance"},
+        {"id": 1, "mode": "montecarlo", "model_name": "ROCKET-A", "project": "p1", "memo": "5%",
+         "status": "completed"},
+        {"id": 2, "mode": "trajectory", "model_name": "ROCKET-B", "project": "p2", "memo": "",
+         "status": "running"},
+        {"id": 3, "mode": "montecarlo", "model_name": "ROCKET-A", "project": "p3", "memo": "resonance",
+         "status": "failed"},
     ]
-    assert [j["id"] for j in pages.filter_jobs(jobs, mode="montecarlo")] == [1, 3]
+    # default sort is newest-first (id desc)
+    assert [j["id"] for j in pages.filter_jobs(jobs, mode="montecarlo")] == [3, 1]
     assert [j["id"] for j in pages.filter_jobs(jobs, query="resonance")] == [3]
     assert [j["id"] for j in pages.filter_jobs(jobs, query="p2")] == [2]
-    assert [j["id"] for j in pages.filter_jobs(jobs, query="", mode="all")] == [1, 2, 3]
+    assert [j["id"] for j in pages.filter_jobs(jobs, query="", mode="all")] == [3, 2, 1]
+
+
+def test_filter_jobs_by_status():
+    jobs = [
+        {"id": 1, "mode": "montecarlo", "status": "completed"},
+        {"id": 2, "mode": "montecarlo", "status": "failed"},
+        {"id": 3, "mode": "trajectory", "status": "completed"},
+    ]
+    assert [j["id"] for j in pages.filter_jobs(jobs, status="completed")] == [3, 1]
+    assert [j["id"] for j in pages.filter_jobs(jobs, status="failed")] == [2]
+    # status + mode compose
+    assert [j["id"] for j in pages.filter_jobs(jobs, mode="montecarlo", status="completed")] == [1]
+
+
+def test_filter_jobs_sort_order():
+    jobs = [{"id": 1}, {"id": 2}, {"id": 3}]
+    assert [j["id"] for j in pages.filter_jobs(jobs, sort="newest")] == [3, 2, 1]
+    assert [j["id"] for j in pages.filter_jobs(jobs, sort="oldest")] == [1, 2, 3]
 
 
 def test_fmt_hms():

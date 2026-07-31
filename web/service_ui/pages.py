@@ -26,6 +26,7 @@ from web.service_ui import config, render
 # the retired projects DB / legacy services.
 
 _MODES = ['trajectory', 'area', 'montecarlo', 'sensitivity']
+_STATUSES = ['queued', 'running', 'completed', 'failed', 'cancelled']
 _ACTIVE_STATUSES = {'preparing', 'queued', 'running'}
 _STATUS_COLOR = {
     'preparing': 'grey', 'queued': 'grey', 'running': 'primary',
@@ -78,18 +79,22 @@ def progress_fraction(progress: Optional[dict]) -> Optional[float]:
     return min(1.0, (progress.get('done') or 0) / total)
 
 
-def filter_jobs(jobs: list, query: str = '', mode: str = 'all') -> list:
-    """Filter the job list by mode and a free-text query over id/model_name/project/memo.
-    Pure/testable for the /jobs search + mode filter (design §6 / review R-O)."""
+def filter_jobs(jobs: list, query: str = '', mode: str = 'all', status: str = 'all',
+                sort: str = 'newest') -> list:
+    """Filter the job list by mode, status and a free-text query (id/model_name/project/memo),
+    then order it. `sort` is 'newest' (id desc) or 'oldest' (id asc). Pure/testable for the /jobs
+    search + filters (design §6 / review R-O)."""
     out = jobs
     if mode and mode != 'all':
         out = [j for j in out if j.get('mode') == mode]
+    if status and status != 'all':
+        out = [j for j in out if j.get('status') == status]
     q = (query or '').strip().lower()
     if q:
         def _hay(j):
             return ' '.join(str(j.get(k, '')) for k in ('id', 'model_name', 'project', 'memo')).lower()
         out = [j for j in out if q in _hay(j)]
-    return out
+    return sorted(out, key=lambda j: j.get('id', 0), reverse=(sort != 'oldest'))
 
 
 # ── Client access ─────────────────────────────────────────────────────────────
@@ -143,21 +148,25 @@ def jobs_page():
 
         health_strip()
 
-        # ── Jobs list (with search + mode filter) ─────────────────────────────
-        flt = {'q': '', 'mode': 'all'}
+        # ── Jobs list (search + mode/status filters + sort) ───────────────────
+        flt = {'q': '', 'mode': 'all', 'status': 'all', 'sort': 'newest'}
+
+        def _setter(key):
+            def _apply(e):
+                flt[key] = e.value if e.value is not None else ('all' if key != 'sort' else 'newest')
+                jobs_list.refresh()
+            return _apply
+
         with ui.row().classes('items-center q-gutter-sm q-mt-xs'):
-            def _set_q(e):
-                flt['q'] = e.value or ''
-                jobs_list.refresh()
-
-            def _set_mode(e):
-                flt['mode'] = e.value or 'all'
-                jobs_list.refresh()
-
             ui.input('Search', placeholder='model / project / memo') \
-                .props('dense clearable').style('min-width:220px').on_value_change(_set_q)
+                .props('dense clearable').style('min-width:220px').on_value_change(_setter('q'))
             ui.select(['all'] + _MODES, value='all', label='Mode') \
-                .props('dense').style('min-width:150px').on_value_change(_set_mode)
+                .props('dense').style('min-width:130px').on_value_change(_setter('mode'))
+            ui.select(['all'] + _STATUSES, value='all', label='Status') \
+                .props('dense').style('min-width:130px').on_value_change(_setter('status'))
+            ui.select({'newest': 'Newest first', 'oldest': 'Oldest first'},
+                      value='newest', label='Sort') \
+                .props('dense').style('min-width:140px').on_value_change(_setter('sort'))
 
         # A single confirm dialog at PAGE scope (outside the refreshable list). Row buttons live
         # inside jobs_list, which the 2s timer rebuilds — a dialog created from a row would lose its
@@ -182,7 +191,8 @@ def jobs_page():
         @ui.refreshable
         def jobs_list():
             try:
-                jobs = filter_jobs(client().list_jobs(), flt['q'], flt['mode'])
+                jobs = filter_jobs(client().list_jobs(), flt['q'], flt['mode'],
+                                   flt['status'], flt['sort'])
             except Exception as exc:
                 ui.label(f'Cannot load jobs: {exc}').classes('text-negative')
                 return
