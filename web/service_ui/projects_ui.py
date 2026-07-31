@@ -25,9 +25,9 @@ from web.service_ui import config, config_edit, config_forms
 from web.service_ui.layout import service_header
 
 _MODES = ['trajectory', 'area', 'montecarlo', 'sensitivity']
-# Modes where the -X "use all logical (SMT) threads" option applies (else default = physical
-# cores). Mirror service.worker._MAX_THREAD_MODES; trajectory ignores the flag.
-_PARALLEL_MODES = {'area', 'montecarlo', 'sensitivity'}
+# area/MC/sensitivity always run in parallel at the physical-core count (service.worker /
+# runner_multi). The SMT (-X) option is intentionally NOT exposed in the UI — the solver is
+# memory-bandwidth bound so logical threads don't help; the flag still exists for the CLI.
 
 # Server-stored project names are constrained to this by service.projects (must mirror it). A
 # browser upload named from a zip whose filename has spaces/Japanese/etc. would otherwise fail
@@ -222,18 +222,12 @@ def _project_row(name: str, listing):
         with ui.item_section().props('side'):
             with ui.row().classes('items-center q-gutter-xs'):
                 mode_sel = ui.select(_MODES, value='trajectory').props('dense').style('min-width:130px')
-                # SMT-threads toggle, shown only for the parallel modes (default = physical cores).
-                mt_switch = ui.switch('SMT').props('dense') \
-                    .bind_visibility_from(mode_sel, 'value', backward=lambda v: v in _PARALLEL_MODES)
-                mt_switch.tooltip('全論理スレッド使用（SMT/HT）。既定は物理コア数。area/MC/sensitivity のみ')
 
                 def _submit(n=name):
                     mode = mode_sel.value
-                    use_max = bool(mt_switch.value) and mode in _PARALLEL_MODES
                     try:
-                        res = _client().submit_project(n, mode, use_max_thread=use_max)
-                        thr = 'all SMT threads' if use_max else 'physical cores'
-                        ui.notify(f'Job #{res["id"]} queued ({mode}, {thr}).', type='positive')
+                        res = _client().submit_project(n, mode)
+                        ui.notify(f'Job #{res["id"]} queued ({mode}).', type='positive')
                     except Exception as exc:
                         _fail('Submit', exc)
 
@@ -618,11 +612,9 @@ def project_edit_page(name: str):
             if not _do_save():
                 return
             mode = mode_sel.value
-            use_max = bool(mt_switch.value) and mode in _PARALLEL_MODES
             try:
-                res = _client().submit_project(name, mode, use_max_thread=use_max)
-                thr = 'all SMT threads' if use_max else 'physical cores'
-                ui.notify(f'Saved & job #{res["id"]} queued ({mode}, {thr}). See Jobs to track it.',
+                res = _client().submit_project(name, mode)
+                ui.notify(f'Saved & job #{res["id"]} queued ({mode}). See Jobs to track it.',
                           type='positive')
             except Exception as exc:
                 _fail('Submit', exc)
@@ -657,12 +649,9 @@ def project_edit_page(name: str):
                 ui.label('Run').classes('text-caption text-grey')
                 mode_sel = ui.select(_MODES, value='trajectory', label='Mode') \
                     .props('dense').classes('w-full')
-                # Thread option applies to area/MC/sensitivity only (default = physical cores).
-                mt_switch = ui.switch('全論理スレッド使用 (SMT)', value=False).props('dense') \
-                    .bind_visibility_from(mode_sel, 'value', backward=lambda v: v in _PARALLEL_MODES)
                 ui.button('Save & Submit', icon='send', on_click=lambda: _submit()) \
                     .props('color=positive').classes('w-full')
-                ui.label('保存してから投入します（既定は物理コア数）').classes('text-caption text-grey')
+                ui.label('保存してから投入します').classes('text-caption text-grey')
 
             # ── right: editor pane (every file built; only the active one visible) ──
             with ui.column().classes('flex-grow').style('min-width:0'):
