@@ -159,6 +159,26 @@ def jobs_page():
             ui.select(['all'] + _MODES, value='all', label='Mode') \
                 .props('dense').style('min-width:150px').on_value_change(_set_mode)
 
+        # A single confirm dialog at PAGE scope (outside the refreshable list). Row buttons live
+        # inside jobs_list, which the 2s timer rebuilds — a dialog created from a row would lose its
+        # parent slot on refresh ("parent slot has been deleted"). This one persists; rows just set
+        # its message + callback and open it.
+        confirm = {'cb': None}
+        with ui.dialog() as confirm_dlg, ui.card():
+            confirm_msg = ui.label('').classes('q-mb-sm')
+            with ui.row():
+                def _confirm_yes():
+                    confirm_dlg.close()
+                    if confirm['cb']:
+                        confirm['cb']()
+                ui.button('Delete', on_click=_confirm_yes).props('color=negative')
+                ui.button('Cancel', on_click=confirm_dlg.close).props('flat')
+
+        def ask_confirm(message, cb):
+            confirm_msg.set_text(message)
+            confirm['cb'] = cb
+            confirm_dlg.open()
+
         @ui.refreshable
         def jobs_list():
             try:
@@ -171,7 +191,7 @@ def jobs_page():
                 return
             with ui.list().props('bordered separator').classes('w-full'):
                 for job in jobs:
-                    _job_row(job)
+                    _job_row(job, jobs_list.refresh, ask_confirm)
 
         jobs_list()
 
@@ -182,7 +202,7 @@ def jobs_page():
         ui.timer(2.0, _tick)
 
 
-def _job_row(job: dict):
+def _job_row(job: dict, refresh=None, ask_confirm=None):
     jid = job['id']
     status = job['status']
     color = _STATUS_COLOR.get(status, 'grey')
@@ -224,6 +244,12 @@ def _job_row(job: dict):
                 if status in _ACTIVE_STATUSES:
                     ui.button(icon='cancel', on_click=lambda j=jid: _cancel(j)) \
                         .props('flat dense color=negative').tooltip('Cancel')
+                else:
+                    # Delete is only offered for finished jobs; an active job must be cancelled
+                    # first (the API also refuses with 409).
+                    ui.button(icon='delete',
+                              on_click=lambda j=jid: _delete_job(j, refresh, ask_confirm)) \
+                        .props('flat dense color=negative').tooltip('Delete')
 
 
 def _cancel(job_id: int):
@@ -232,6 +258,24 @@ def _cancel(job_id: int):
         ui.notify(f'Job #{job_id} cancel requested.', type='info')
     except Exception as exc:
         ui.notify(f'Cancel failed: {exc}', type='negative')
+
+
+def _delete_job(job_id: int, refresh=None, ask_confirm=None):
+    def _do():
+        try:
+            client().delete_job(job_id)
+            ui.notify(f'Job #{job_id} deleted.', type='warning')
+            if refresh:
+                refresh()
+        except Exception as exc:
+            ui.notify(f'Delete failed: {exc}', type='negative', multi_line=True)
+
+    msg = (f'Delete job #{job_id}? Its results/work directory will be removed. '
+           'This cannot be undone.')
+    if ask_confirm:
+        ask_confirm(msg, _do)
+    else:  # no shared dialog available → act directly (kept for safety)
+        _do()
 
 
 # ── /jobs/{job_id} ──────────────────────────────────────────────────────────

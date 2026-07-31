@@ -234,3 +234,13 @@ def test_migrate_adds_columns_to_legacy_db(tmp_path):
     s.set_memo(1, "added later")
     assert s.get(1).memo == "added later"
     s.close()
+
+
+def test_delete_removes_record(store):
+    a = store.enqueue(mode="trajectory")
+    b = store.enqueue(mode="area")
+    assert store.delete(a) is True
+    assert store.get(a) is None
+    assert store.get(b) is not None          # unrelated job untouched
+    assert store.delete(a) is False          # already gone
+    assert store.delete(999) is False        # never existed

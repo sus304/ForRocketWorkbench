@@ -211,6 +211,17 @@ class JobStore:
         """Reset a job to queued for recovery re-run (short modes have no resume path)."""
         self._update(job_id, status=QUEUED, started_at=None, finished_at=None, work_dir="")
 
+    def delete(self, job_id: int) -> bool:
+        """Remove a job record. Returns False if it did not exist. Callers are responsible for
+        removing the job's on-disk files (and for refusing to delete an active job)."""
+        with self._Session() as session:
+            job = session.get(Job, job_id)
+            if job is None:
+                return False
+            session.delete(job)
+            session.commit()
+            return True
+
     def _update(self, job_id: int, **values) -> None:
         with self._Session() as session:
             session.execute(update(Job).where(Job.id == job_id).values(**values))

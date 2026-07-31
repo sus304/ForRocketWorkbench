@@ -237,6 +237,21 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
         cancelled = worker.cancel(job_id)
         return {"id": job_id, "cancelled": cancelled, "status": store.get(job_id).status}
 
+    @app.delete("/jobs/{job_id}", dependencies=auth)
+    def delete_job(job_id: int):
+        job = store.get(job_id)
+        if job is None:
+            raise HTTPException(404, "job not found")
+        if job.status in _ACTIVE:
+            raise HTTPException(409, "job is active; cancel it first")
+        # Remove the job's on-disk run dir (its work_dir + results) before the record. job_id is a
+        # typed int path param, so run_dir_for stays within the jobs/ store — no traversal.
+        run_dir = worker.run_dir_for(job_id)
+        if run_dir.exists():
+            shutil.rmtree(run_dir, ignore_errors=True)
+        store.delete(job_id)
+        return {"deleted": job_id}
+
     @app.get("/jobs/{job_id}/result.tar.gz", dependencies=auth)
     def download_result(job_id: int, full: bool = Query(False)):
         job = store.get(job_id)

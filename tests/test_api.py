@@ -242,3 +242,32 @@ def test_submit_run_download_end_to_end(binary_path, store, tmp_path, projects_d
         assert len(_tar_names(r.content)) > 0
     finally:
         w.stop()
+
+
+def test_delete_terminal_job_removes_record_and_run_dir(client, store, worker):
+    jid = store.enqueue(mode="trajectory")
+    store.mark_completed(jid, result_dir="", summary="")
+    run_dir = worker.run_dir_for(jid)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "flight_log.csv").write_text("t\n0\n")
+    r = client.delete(f"/jobs/{jid}", headers=AUTH)
+    assert r.status_code == 200 and r.json()["deleted"] == jid
+    assert store.get(jid) is None
+    assert not run_dir.exists()                       # on-disk results removed too
+
+
+def test_delete_active_job_refused(client, store):
+    jid = store.enqueue(mode="trajectory")            # status QUEUED = active
+    r = client.delete(f"/jobs/{jid}", headers=AUTH)
+    assert r.status_code == 409
+    assert store.get(jid) is not None                 # not deleted while active
+
+
+def test_delete_missing_job_404(client):
+    assert client.delete("/jobs/999", headers=AUTH).status_code == 404
+
+
+def test_delete_requires_auth(client, store):
+    jid = store.enqueue(mode="trajectory")
+    store.mark_failed(jid, "x")
+    assert client.delete(f"/jobs/{jid}").status_code == 401

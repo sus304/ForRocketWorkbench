@@ -73,6 +73,11 @@ class ServiceClient:
         r.raise_for_status()
         return r.json()
 
+    def delete_job(self, job_id: int) -> dict:
+        r = self.s.delete(self._url(f"/jobs/{job_id}"), headers=self.headers)
+        r.raise_for_status()
+        return r.json()
+
     def set_memo(self, job_id: int, memo: str) -> dict:
         r = self.s.put(self._url(f"/jobs/{job_id}/memo"), headers=self.headers,
                        data={"memo": memo})
