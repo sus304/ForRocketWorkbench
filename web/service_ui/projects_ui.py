@@ -287,6 +287,17 @@ _FILE_ORDER = ['config_solver.json', 'param_list_stage1.json', 'param_rocket.jso
                'param_engine.json', 'sequence_of_event.json', 'config_area.json',
                'config_montecarlo.json', 'config_sensitivity.json']
 
+_FILE_LABELS = {
+    'config_solver.json':      'Solver',
+    'param_list_stage1.json':  'Stage-1',
+    'param_rocket.json':       'Rocket',
+    'param_engine.json':       'Engine',
+    'sequence_of_event.json':  'Sequence of Events',
+    'config_area.json':        'Area',
+    'config_montecarlo.json':  'MonteCarlo',
+    'config_sensitivity.json': 'Sensitivity',
+}
+
 
 def _ordered_files(files: dict) -> list:
     known = [f for f in _FILE_ORDER if f in files]
@@ -440,33 +451,22 @@ def project_edit_page(name: str):
             ui.label(f'Cannot load config: {exc}').classes('text-negative')
             return
 
-        state = {'etag': cfg['etag']}
         files = cfg['files']
-        # Per file: {'tabs', 'form_collect', 'json_area', 'content'}. On save, the active tab is
-        # the source of truth — Form uses the typed/generic collect(), JSON parses the textarea.
+        ordered = _ordered_files(files)
+        # IDE-style layout: a file list on the left, one file's editor on the right. Every file's
+        # editor is BUILT (so its collect() exists), but only the active one is visible — the save
+        # still gathers all files into one etag-guarded PUT (unchanged), so switching files never
+        # loses edits. Per file: {'tabs', 'form_collect', 'json_area', 'content'}; on save the tab
+        # left open is the source of truth (Form → collect(), JSON → parse the textarea).
+        state = {'etag': cfg['etag'], 'active': ordered[0] if ordered else None}
         panels: dict = {}
+        containers: dict = {}
 
-        for fname in _ordered_files(files):
-            content = files[fname]
-            typed = config_forms.has_form(fname)
-            icon = 'tune' if typed else 'description'
-            with ui.expansion(fname, icon=icon, value=typed).classes('w-full'):
-                with ui.tabs() as tabs:
-                    ui.tab('Form')
-                    ui.tab('JSON')
-                tabs.value = 'Form'
-                with ui.tab_panels(tabs, value='Form').classes('w-full'):
-                    with ui.tab_panel('Form'):
-                        form_con = ui.column().classes('w-full q-gutter-sm')
-                        if typed:
-                            collect = config_forms.build_form(fname, content, form_con, siblings=files)
-                        else:
-                            collect = _generic_form(content, form_con)
-                    with ui.tab_panel('JSON'):
-                        area = ui.textarea(value=json.dumps(content, indent=4, ensure_ascii=False)) \
-                            .classes('w-full').style('font-family:monospace; min-height:320px;')
-                panels[fname] = {'tabs': tabs, 'form_collect': collect, 'json_area': area,
-                                 'content': content}
+        def _select(f):
+            state['active'] = f
+            for nm, col in containers.items():
+                col.set_visibility(nm == f)
+            nav.refresh()
 
         def _save():
             files_out = {}
@@ -490,7 +490,53 @@ def project_edit_page(name: str):
             except Exception as exc:
                 _fail('Save (reload if it changed elsewhere)', exc)
 
-        with ui.row().classes('q-mt-md q-gutter-sm items-center'):
-            ui.button('Save', icon='save', on_click=_save).props('color=primary')
-            ui.label('Edit in Form or JSON per file; the tab you leave open is what gets saved.') \
-                .classes('text-caption text-grey')
+        with ui.row().classes('w-full no-wrap').style('gap:16px; align-items:flex-start'):
+            # ── left: file nav (sticky) ──
+            with ui.column().classes('q-gutter-xs') \
+                    .style('min-width:200px; position:sticky; top:64px'):
+                ui.label('Config files').classes('text-caption text-grey')
+
+                @ui.refreshable
+                def nav():
+                    for f in ordered:
+                        active = (f == state['active'])
+                        ui.button(_FILE_LABELS.get(f, f),
+                                  icon=('tune' if config_forms.has_form(f) else 'description'),
+                                  on_click=lambda f=f: _select(f)) \
+                            .props('flat no-caps align=left ' +
+                                   ('color=primary' if active else 'color=grey-8')) \
+                            .classes('w-full justify-start' + (' bg-blue-1' if active else ''))
+
+                nav()
+                ui.separator().classes('q-my-sm')
+                ui.button('Save all', icon='save', on_click=lambda: _save()) \
+                    .props('color=primary').classes('w-full')
+                ui.label('全 config をまとめて保存（開いているタブが対象）') \
+                    .classes('text-caption text-grey')
+
+            # ── right: editor pane (every file built; only the active one visible) ──
+            with ui.column().classes('flex-grow').style('min-width:0'):
+                for fname in ordered:
+                    content = files[fname]
+                    typed = config_forms.has_form(fname)
+                    col = ui.column().classes('w-full')
+                    col.set_visibility(fname == state['active'])
+                    with col:
+                        ui.label(_FILE_LABELS.get(fname, fname)).classes('text-subtitle1 q-mb-xs')
+                        with ui.tabs() as tabs:
+                            ui.tab('Form')
+                            ui.tab('JSON')
+                        tabs.value = 'Form'
+                        with ui.tab_panels(tabs, value='Form').classes('w-full'):
+                            with ui.tab_panel('Form'):
+                                form_con = ui.column().classes('w-full q-gutter-sm')
+                                if typed:
+                                    collect = config_forms.build_form(fname, content, form_con, siblings=files)
+                                else:
+                                    collect = _generic_form(content, form_con)
+                            with ui.tab_panel('JSON'):
+                                area = ui.textarea(value=json.dumps(content, indent=4, ensure_ascii=False)) \
+                                    .classes('w-full').style('font-family:monospace; min-height:320px;')
+                        panels[fname] = {'tabs': tabs, 'form_collect': collect,
+                                         'json_area': area, 'content': content}
+                    containers[fname] = col
