@@ -378,3 +378,33 @@ def _render_status(job: dict):
 
         if job.get('work_dir'):
             ui.label(job['work_dir']).classes('text-caption text-grey q-mt-xs')
+
+
+@ui.page('/jobs/{job_id}/view3d')
+def view3d_page(job_id: int):
+    """Full-viewport embedded 3D viewer for a job. When a viewer bundle is configured
+    (WB_VIEWER_DIST) it is served same-origin and loaded in an iframe pointed at this job's result
+    manifest; otherwise fall back to the external link or a hint. Iframe-only so the viewer's
+    Cesium/WebGL doesn't fight the NiceGUI runtime/layout (survey §10.8)."""
+    if config.viewer_enabled():
+        src = f"{config.viewer_mount_path()}/index.html?src=/api/results/jobs/{job_id}/"
+        ui.html(
+            f'<iframe src="{src}" title="3D viewer" allow="fullscreen" '
+            'style="position:fixed;inset:0;width:100vw;height:100vh;border:0"></iframe>'
+        )
+        ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to(f'/jobs/{job_id}')) \
+            .props('round color=primary').style('position:fixed;top:8px;left:8px;z-index:10') \
+            .tooltip('Back to job')
+        return
+    service_header(active='Jobs')
+    with ui.column().classes('q-pa-md q-gutter-sm'):
+        ext = config.external_3d_url()
+        if ext:
+            ui.label('内蔵3Dビューアは未設定です（WB_VIEWER_DIST）。外部ビューアを開きます。') \
+                .classes('text-caption text-grey')
+            ui.button('Open external 3D', icon='open_in_new',
+                      on_click=lambda u=ext: ui.navigate.to(u, new_tab=True)).props('color=primary')
+        else:
+            ui.label('3Dビューアは未設定です（WB_VIEWER_DIST / WB_EXTERNAL_3D_URL）。') \
+                .classes('text-grey')
+        ui.button('← Job', on_click=lambda: ui.navigate.to(f'/jobs/{job_id}')).props('flat')

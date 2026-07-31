@@ -68,6 +68,22 @@ def external_3d_url() -> str:
     return os.environ.get("WB_EXTERNAL_3D_URL", "").strip()
 
 
+def viewer_dist() -> str:
+    """Optional path to a built 3D-viewer static bundle to serve same-origin (config-gated,
+    product-neutral). Unset → no viewer mount, and the UI falls back to WB_EXTERNAL_3D_URL."""
+    return os.environ.get("WB_VIEWER_DIST", "").strip()
+
+
+def viewer_mount_path() -> str:
+    """URL prefix the viewer bundle is served under. Default '/viewer' (must not collide with the
+    '/static'/'/_nicegui' public prefixes)."""
+    return (os.environ.get("WB_VIEWER_MOUNT_PATH", "/viewer").strip() or "/viewer").rstrip("/")
+
+
+def viewer_enabled() -> bool:
+    return bool(viewer_dist())
+
+
 def get_client(data_root=None, session=None) -> ServiceClient:
     root = default_data_root() if data_root is None else Path(data_root)
     return ServiceClient(service_url(), load_or_create_token(root), session=session)

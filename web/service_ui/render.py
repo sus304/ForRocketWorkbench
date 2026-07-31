@@ -684,14 +684,21 @@ def render_result(client, job_id, mode: str, key) -> None:
     if summary_items:
         _build_summary_card(summary_items)
 
-    # Optional external detailed-3D viewer link (config-gated, neutral name; design §10).
+    # Detailed-3D viewer link (config-gated, neutral). Prefer the same-origin embedded viewer
+    # (WB_VIEWER_DIST) at /jobs/{id}/view3d; else fall back to an external URL (WB_EXTERNAL_3D_URL).
     from web.service_ui import config as _cfg
-    ext_3d = _safe(lambda: _cfg.external_3d_url(), '')
-    if ext_3d:
+    if _safe(lambda: _cfg.viewer_enabled(), False):
         with ui.row().classes('q-mb-sm'):
             ui.button('Open in detailed 3D',
-                      on_click=lambda u=ext_3d: ui.navigate.to(u, new_tab=True)) \
+                      on_click=lambda j=job_id: ui.navigate.to(f'/jobs/{j}/view3d', new_tab=True)) \
                 .props('flat color=primary icon=open_in_new')
+    else:
+        ext_3d = _safe(lambda: _cfg.external_3d_url(), '')
+        if ext_3d:
+            with ui.row().classes('q-mb-sm'):
+                ui.button('Open in detailed 3D',
+                          on_click=lambda u=ext_3d: ui.navigate.to(u, new_tab=True)) \
+                    .props('flat color=primary icon=open_in_new')
 
     if mode == 'sensitivity':
         _build_sensitivity_card(client, job_id)

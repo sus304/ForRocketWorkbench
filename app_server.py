@@ -81,11 +81,32 @@ def login_page():
         ui.button("Sign in", on_click=_try)
 
 
+def _mount_viewer_and_extensions() -> None:
+    """Optionally serve a same-origin 3D-viewer bundle (WB_VIEWER_DIST) and mount an extension
+    ASGI sub-app (WB_EXTENSION_APP, e.g. an aviation/maritime data proxy owned by the viewer
+    project). Both are config-gated and product-neutral; unset → nothing is mounted. They sit
+    behind AuthMiddleware like every other route (verified in the browser: an unauthenticated
+    request is redirected to /login)."""
+    from web.service_ui import config as _cfg
+    dist = _cfg.viewer_dist()
+    if dist:
+        app.add_static_files(_cfg.viewer_mount_path(), dist)
+
+    ext = os.environ.get("WB_EXTENSION_APP", "").strip()
+    if ext:
+        import importlib
+        module_name, _, attr = ext.partition(":")
+        sub = getattr(importlib.import_module(module_name), attr or "app")
+        mount = (os.environ.get("WB_EXTENSION_MOUNT_PATH", "/ext").strip() or "/ext").rstrip("/")
+        app.mount(mount, sub)
+
+
 def main():
     password = os.environ.get("WB_UI_PASSWORD", "")
     if not password:
         raise SystemExit("WB_UI_PASSWORD is not set; refusing to start the UI without login")
     storage_secret = os.environ.get("WB_UI_STORAGE_SECRET") or password
+    _mount_viewer_and_extensions()
     app.add_middleware(AuthMiddleware)
     ui.run(
         title="ForRocket Workbench",
