@@ -10,14 +10,19 @@ from __future__ import annotations
 
 import hmac
 
-# Paths reachable without a session: the login page itself and NiceGUI's own framework/static
-# routes (websocket, assets) that must load for the login page to work.
-_PUBLIC_PREFIXES = ("/login", "/_nicegui", "/static", "/favicon", "/health")
+# Paths reachable without a session: the login page and NiceGUI's own framework/static routes
+# (websocket, assets) that must load for the login page to work. A prefix matches only at a "/"
+# boundary (or exact); matching a bare startswith would make e.g. "/static3d/..." or
+# "/healthz-secret" accidentally public and expose them on the tailnet (review §10.4). NiceGUI
+# serves the favicon at exactly "/favicon.ico", so it is allow-listed as an exact path.
+_PUBLIC_EXACT = frozenset({"/favicon.ico"})
+_PUBLIC_PREFIXES = ("/login", "/_nicegui", "/static", "/health")
 
 
 def is_public_path(path: str) -> bool:
-    return any(path == p or path.startswith(p + "/") or path.startswith(p)
-               for p in _PUBLIC_PREFIXES)
+    if path in _PUBLIC_EXACT:
+        return True
+    return any(path == p or path.startswith(p + "/") for p in _PUBLIC_PREFIXES)
 
 
 def check_password(supplied: str, expected: str) -> bool:

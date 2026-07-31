@@ -21,11 +21,28 @@ def test_check_password_constant_time_and_fail_closed():
 
 
 def test_public_paths():
+    # legitimately public: the login page, NiceGUI assets/ws, health, favicon
     assert auth.is_public_path("/login")
+    assert auth.is_public_path("/login/")
     assert auth.is_public_path("/_nicegui/anything")
+    assert auth.is_public_path("/static/x.js")
     assert auth.is_public_path("/health")
+    assert auth.is_public_path("/favicon.ico")
+    # protected app routes stay protected
     assert not auth.is_public_path("/jobs")
     assert not auth.is_public_path("/jobs/3")
+    assert not auth.is_public_path("/projects")
+
+
+def test_public_path_requires_separator_boundary():
+    """A prefix must match at a '/' boundary (or exact); a bare startswith would leak look-alike
+    paths onto the tailnet (review §10.4)."""
+    assert not auth.is_public_path("/static3d/index.html")   # not /static/...
+    assert not auth.is_public_path("/staticassets")
+    assert not auth.is_public_path("/healthz-secret")
+    assert not auth.is_public_path("/login-backdoor")
+    assert not auth.is_public_path("/_nicegui-evil")
+    assert not auth.is_public_path("/favicon.ico.evil")      # only exact /favicon.ico is public
 
 
 def test_app_server_does_not_import_legacy_ui_or_db():
