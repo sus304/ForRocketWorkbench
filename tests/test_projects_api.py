@@ -153,3 +153,25 @@ def test_project_file_json_upload_revalidated_over_http(sc):
     bad = json.dumps({"Wind Condition": {"Wind File Path": "/etc/passwd"}}).encode()
     with pytest.raises(Exception):
         sc.upload_project_file("rk", "config_solver.json", bad)
+
+
+def test_submit_snapshots_config_isolating_later_edits(sc, worker, projects_dir):
+    """The booking concern: submit job1 from a project, then edit the project (for a job2 run),
+    then submit job2. Each submit stages an INDEPENDENT snapshot into its own run_dir *before* the
+    job is queued (review N-2), so the edit made after job1 was submitted must not leak into job1.
+    Worker isn't started — staging is synchronous in the submit handler, so this is timing-free."""
+    sc.upload_project("ex", _zip_dir(str(projects_dir / "example")))
+    j1 = sc.submit_project("ex", "trajectory")["id"]
+
+    cfg = sc.get_project_config("ex")
+    before = cfg["files"]["config_solver.json"]["Launch Condition"]["Azimuth [deg]"]
+    cfg["files"]["config_solver.json"]["Launch Condition"]["Azimuth [deg]"] = before + 42.0
+    sc.put_project_config("ex", cfg["files"], if_match=cfg["etag"])
+
+    j2 = sc.submit_project("ex", "trajectory")["id"]
+
+    c1 = json.loads((worker.run_dir_for(j1) / "config_solver.json").read_text())
+    c2 = json.loads((worker.run_dir_for(j2) / "config_solver.json").read_text())
+    assert c1["Launch Condition"]["Azimuth [deg]"] == before          # job1 snapshot pre-edit
+    assert c2["Launch Condition"]["Azimuth [deg]"] == before + 42.0   # job2 gets the edit
+    assert j1 != j2
