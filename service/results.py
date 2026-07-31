@@ -232,6 +232,11 @@ def list_kml(result_dir: str) -> dict:
     for d in sorted(rd.glob("result_*")):
         if not d.is_dir():
             continue
+        # A trajectory run emits one result_* dir per phase (ascent `result_<m>_stage1`, descent
+        # `result_<m>_ballistic_stage1`), each with _trajectory.kml/_iip.kml. Key by phase so the
+        # names are stable and unambiguous (not order-dependent), matching the phase vocabulary
+        # used elsewhere (_log_phase).
+        phase = _log_phase(d.name)
         for f in sorted(os.listdir(d)):
             if f.endswith(_TRAJ_SUFFIX):
                 kind = "trajectory"
@@ -239,10 +244,7 @@ def list_kml(result_dir: str) -> dict:
                 kind = "iip"
             else:
                 continue
-            # "trajectory"/"iip" for the common single-stage case (matches the manifest ids);
-            # qualify with the result_* dir name if several dirs contribute the same kind.
-            key = kind if kind not in out else f"{d.name}_{kind}"
-            out[key] = f"{d.name}/{f}"
+            out[f"{phase}_{kind}"] = f"{d.name}/{f}"
     return out
 
 

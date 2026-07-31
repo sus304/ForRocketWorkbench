@@ -20,24 +20,36 @@ from nicegui import app
 
 from web.service_ui import config
 
-# logical KML name (from result_meta['kml']) → manifest role. Non-flight-path (MC dispersion)
-# logical names end with the kind token, so match on that.
+# manifest role → display label. list_kml logical names are "{qualifier}_{kind}" (qualifier is a
+# phase like stage1/ballistic, or an MC scenario like decent/ballistic) or a bare kind.
 _ROLE_NAME = {
     "nominal": "飛行経路", "iip": "IIP 軌跡", "points": "落下点群",
     "envelope": "3σ 包絡", "ellipse": "分散楕円", "track": "flight_log",
 }
+# kind token (suffix of the logical name) → role.
+_KIND_ROLE = (("trajectory", "nominal"), ("iip", "iip"), ("points", "points"),
+              ("envelope", "envelope"), ("ellipse", "ellipse"))
 
 
 def kml_role(logical: str) -> str:
-    """Map a list_kml logical name to a manifest role (nominal/iip/points/envelope/ellipse)."""
-    if logical == "trajectory":
-        return "nominal"
-    if logical == "iip":
-        return "iip"
-    for kind in ("points", "ellipse", "envelope"):
-        if logical.endswith(kind):
-            return kind
+    """Map a list_kml logical name to a manifest role, matching on the kind token so phase- or
+    scenario-qualified names (stage1_trajectory, decent_points, ballistic_iip) classify correctly."""
+    for kind, role in _KIND_ROLE:
+        if logical == kind or logical.endswith("_" + kind):
+            return role
     return "nominal"
+
+
+def _kml_label(logical: str, role: str) -> str:
+    """Readable, unambiguous name: '<qualifier> <role label>' (e.g. 'stage1 飛行経路'), or just
+    the role label when unqualified."""
+    for kind, _r in _KIND_ROLE:
+        if logical == kind:
+            return _ROLE_NAME.get(role, logical)
+        if logical.endswith("_" + kind):
+            qualifier = logical[: -(len(kind) + 1)]
+            return f"{qualifier} {_ROLE_NAME.get(role, kind)}".strip()
+    return _ROLE_NAME.get(role, logical)
 
 
 def build_job_manifest(job_id: int, status: dict, meta: dict, generated: str = "") -> dict:
@@ -49,7 +61,7 @@ def build_job_manifest(job_id: int, status: dict, meta: dict, generated: str = "
         role = kml_role(logical)
         items.append({
             "id": logical,
-            "name": _ROLE_NAME.get(logical) or _ROLE_NAME.get(role) or logical,
+            "name": _kml_label(logical, role),
             "kind": "kml",
             "path": f"kml/{logical}",
             "role": role,
@@ -97,9 +109,11 @@ def job_kml(job_id: int, name: str):
 
 
 @app.get("/api/results/jobs/{job_id}/flight_log")
-def job_flight_log(job_id: int):
+def job_flight_log(job_id: int, phase: str = "stage1"):
+    # csv export needs the selection to resolve to exactly one log; a trajectory job has a
+    # stage1 (ascent) and a ballistic log per case, so pin a phase (default the ascent track).
     try:
-        data = _client().extract_file(job_id, "nominal", fmt="csv", max_points=0)
+        data = _client().extract_file(job_id, "nominal", fmt="csv", phase=phase, max_points=0)
     except Exception as exc:
         raise HTTPException(404, f"flight_log not available: {exc}")
     return Response(content=data, media_type="text/csv")

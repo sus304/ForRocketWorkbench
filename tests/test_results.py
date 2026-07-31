@@ -158,36 +158,26 @@ def test_list_kml_and_path(tmp_path):
         results.kml_path(str(wd), "../../etc/passwd")
 
 
-def test_list_kml_finds_trajectory_iip_at_depth_1(tmp_path):
+def test_list_kml_finds_trajectory_iip_keyed_by_phase(tmp_path):
     """Flight-path KML lives one level down in result_* and must be discoverable (the viewer's
-    main target), while cases/ (huge in MC runs) is never scanned."""
+    main target). A run emits one dir per phase (stage1 ascent + ballistic descent); keys are
+    phase-qualified so they are stable and unambiguous. cases/ (huge in MC) is never scanned."""
     wd = tmp_path / "work_trajectory"
-    (wd / "result_ROCKET-A_0_stage1").mkdir(parents=True)
-    (wd / "result_ROCKET-A_0_stage1" / "_trajectory.kml").write_text("<kml/>")
-    (wd / "result_ROCKET-A_0_stage1" / "_iip.kml").write_text("<kml/>")
+    for d in ("result_ROCKET-A_stage1", "result_ROCKET-A_ballistic_stage1"):
+        (wd / d).mkdir(parents=True)
+        (wd / d / "_trajectory.kml").write_text("<kml/>")
+        (wd / d / "_iip.kml").write_text("<kml/>")
     # a cases/ tree that must NOT be walked
     (wd / "cases" / "0").mkdir(parents=True)
     (wd / "cases" / "0" / "_trajectory.kml").write_text("<kml/>")
 
     cat = results.list_kml(str(wd))
-    assert cat["trajectory"] == "result_ROCKET-A_0_stage1/_trajectory.kml"
-    assert cat["iip"] == "result_ROCKET-A_0_stage1/_iip.kml"
-    # nothing from cases/ leaked in
-    assert not any("cases/" in v for v in cat.values())
-    # kml_path resolves the discovered relative path
-    assert results.kml_path(str(wd), "trajectory").name == "_trajectory.kml"
-    assert results.kml_path(str(wd), "trajectory").parent.name == "result_ROCKET-A_0_stage1"
-
-
-def test_list_kml_qualifies_duplicate_kinds_across_result_dirs(tmp_path):
-    wd = tmp_path / "work_trajectory"
-    for d in ("result_ROCKET-A_0_stage1", "result_ROCKET-A_0_stage2"):
-        (wd / d).mkdir(parents=True)
-        (wd / d / "_trajectory.kml").write_text("<kml/>")
-    cat = results.list_kml(str(wd))
-    # first (sorted) keeps the plain "trajectory" id; the second is dir-qualified → unique keys
-    assert cat["trajectory"] == "result_ROCKET-A_0_stage1/_trajectory.kml"
-    assert cat["result_ROCKET-A_0_stage2_trajectory"] == "result_ROCKET-A_0_stage2/_trajectory.kml"
+    assert cat["stage1_trajectory"] == "result_ROCKET-A_stage1/_trajectory.kml"
+    assert cat["stage1_iip"] == "result_ROCKET-A_stage1/_iip.kml"
+    assert cat["ballistic_trajectory"] == "result_ROCKET-A_ballistic_stage1/_trajectory.kml"
+    assert cat["ballistic_iip"] == "result_ROCKET-A_ballistic_stage1/_iip.kml"
+    assert not any("cases/" in v for v in cat.values())   # nothing from cases/ leaked in
+    assert results.kml_path(str(wd), "ballistic_trajectory").parent.name == "result_ROCKET-A_ballistic_stage1"
 
 
 def test_meta_cases_by_phase(mc_work_dir):
