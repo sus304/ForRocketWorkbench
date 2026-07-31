@@ -575,7 +575,9 @@ def project_edit_page(name: str):
                 col.set_visibility(nm == f)
             nav.refresh()
 
-        def _save():
+        def _do_save() -> bool:
+            """Collect every file (active tab wins) and PUT once with the etag. Returns True on
+            success; notifies on failure. No success toast — callers add their own."""
             files_out = {}
             for fname, panel in panels.items():
                 if panel['tabs'].value == 'JSON':
@@ -583,7 +585,7 @@ def project_edit_page(name: str):
                         files_out[fname] = json.loads(panel['json_area'].value)
                     except json.JSONDecodeError as exc:
                         ui.notify(f'{fname}: JSON parse error — {exc}', type='negative', multi_line=True)
-                        return
+                        return False
                 else:
                     files_out[fname] = panel['form_collect']()
             try:
@@ -593,9 +595,26 @@ def project_edit_page(name: str):
                 for fname, panel in panels.items():
                     panel['json_area'].set_value(
                         json.dumps(files_out[fname], indent=4, ensure_ascii=False))
-                ui.notify('Saved.', type='positive')
+                return True
             except Exception as exc:
                 _fail('Save (reload if it changed elsewhere)', exc)
+                return False
+
+        def _save():
+            if _do_save():
+                ui.notify('Saved.', type='positive')
+
+        def _submit():
+            # Save first so the run reflects what's on screen, then queue by project reference.
+            if not _do_save():
+                return
+            mode = mode_sel.value
+            try:
+                res = _client().submit_project(name, mode)
+                ui.notify(f'Saved & job #{res["id"]} queued ({mode}). See Jobs to track it.',
+                          type='positive')
+            except Exception as exc:
+                _fail('Submit', exc)
 
         with ui.row().classes('w-full no-wrap').style('gap:16px; align-items:flex-start'):
             # ── left: file nav (sticky) ──
@@ -620,6 +639,16 @@ def project_edit_page(name: str):
                     .props('color=primary').classes('w-full')
                 ui.label('全 config をまとめて保存（開いているタブが対象）') \
                     .classes('text-caption text-grey')
+
+                # Submit straight from the editor (no need to go back to the list). Saves first so
+                # the run matches what's on screen.
+                ui.separator().classes('q-my-sm')
+                ui.label('Run').classes('text-caption text-grey')
+                mode_sel = ui.select(_MODES, value='trajectory', label='Mode') \
+                    .props('dense').classes('w-full')
+                ui.button('Save & Submit', icon='send', on_click=lambda: _submit()) \
+                    .props('color=positive').classes('w-full')
+                ui.label('保存してから投入します').classes('text-caption text-grey')
 
             # ── right: editor pane (every file built; only the active one visible) ──
             with ui.column().classes('flex-grow').style('min-width:0'):
