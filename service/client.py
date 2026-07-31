@@ -191,6 +191,13 @@ class ServiceClient:
         r.raise_for_status()
         return r.json()
 
+    def result_kml(self, job_id: int, name: str) -> bytes:
+        """Fetch a discovered KML (by logical name from result_meta['kml']) as bytes."""
+        r = self.s.get(self._url(f"/jobs/{job_id}/result/kml"),
+                       headers=self.headers, params={"name": name})
+        r.raise_for_status()
+        return r.content
+
     def result_cases(self, job_id: int, select: str) -> list:
         r = self.s.get(self._url(f"/jobs/{job_id}/result/cases"),
                        headers=self.headers, params={"select": select})
