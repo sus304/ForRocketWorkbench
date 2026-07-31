@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import io
 import json
 import re
 import sys
@@ -338,14 +339,81 @@ def _human_size(n: int) -> str:
     return f'{f:.1f} GB'
 
 
+def _csv_to_table(text: str, max_rows: int = 1000):
+    """Parse CSV text into (columns, rows) for preview, or (None, None) if it isn't tabular.
+    A fully-numeric first line is treated as data (synthesised column names)."""
+    import csv as _csv
+    text = (text or '').replace('\r\n', '\n').strip()
+    if not text:
+        return None, None
+    rows = [r for r in _csv.reader(io.StringIO(text)) if any(c.strip() for c in r)]
+    if len(rows) < 2 or len(rows[0]) < 2:   # need ≥2 rows and ≥2 columns to be worth a table
+        return None, None
+
+    def _isnum(s):
+        try:
+            float(s)
+            return True
+        except (TypeError, ValueError):
+            return False
+
+    if all(_isnum(c) for c in rows[0]):
+        cols = [f'col{i}' for i in range(len(rows[0]))]
+        data = rows
+    else:
+        cols, data = rows[0], rows[1:]
+    return cols, data[:max_rows]
+
+
+def _file_chart_opts(cols, rows):
+    """echart line-chart options plotting column0 (x) vs each other numeric column, or None if the
+    data isn't numeric enough to plot. Lets the user judge a thrust/CA/MOI curve before replacing."""
+    def col_vals(j):
+        out = []
+        for r in rows:
+            try:
+                out.append(float(r[j]) if j < len(r) else None)
+            except (TypeError, ValueError):
+                out.append(None)
+        return out
+
+    xs = col_vals(0)
+    if not any(v is not None for v in xs):
+        return None
+    palette = ['#42a5f5', '#ff9800', '#66bb6a', '#ab47bc', '#ff6b9d', '#00bcd4', '#ffca28']
+    series = []
+    for j in range(1, len(cols)):
+        ys = col_vals(j)
+        data = [[xs[i], ys[i]] for i in range(len(rows)) if xs[i] is not None and ys[i] is not None]
+        if not data:
+            continue
+        series.append({'type': 'line', 'name': cols[j], 'data': data, 'showSymbol': False,
+                       'lineStyle': {'color': palette[len(series) % len(palette)], 'width': 2}})
+    if not series:
+        return None
+    ax = '#90a4ae'
+    return {
+        'backgroundColor': '#121212', 'animation': False,
+        'tooltip': {'trigger': 'axis'},
+        'legend': {'top': 2, 'textStyle': {'color': ax, 'fontSize': 10}, 'type': 'scroll'},
+        'grid': {'top': 30, 'left': '10%', 'right': '4%', 'bottom': 40},
+        'xAxis': {'type': 'value', 'name': cols[0], 'nameLocation': 'middle', 'nameGap': 26,
+                  'nameTextStyle': {'color': ax}, 'axisLabel': {'color': ax},
+                  'splitLine': {'lineStyle': {'color': '#2a2a2a', 'type': 'dashed'}}},
+        'yAxis': {'type': 'value', 'axisLabel': {'color': ax},
+                  'splitLine': {'lineStyle': {'color': '#2a2a2a', 'type': 'dashed'}}},
+        'series': series,
+    }
+
+
 def _file_manager(name: str):
-    """Upload/replace/download/delete the input files a config references (thrust/wind/aero CSVs),
-    so a stored project can be iterated without re-uploading the whole ZIP."""
-    with ui.card().classes('w-full q-mb-md'):
-        with ui.row().classes('items-center q-gutter-sm'):
-            ui.label('Input Files').classes('text-subtitle2')
-            ui.label('config が参照する推力/風/空力テーブル等。差し替えても config 内の値（パス）は変わりません。') \
-                .classes('text-caption text-grey')
+    """Upload/replace/download/delete/view the DATA files a config references (thrust/wind/aero
+    CSVs), so a stored project can be iterated without re-uploading the whole ZIP. Collapsed by
+    default and showing only data files (the .json configs are edited in the pane below)."""
+    with ui.expansion('Input data files', icon='folder').classes('w-full q-mb-md') as exp:
+        exp.props('dense')
+        ui.label('config が参照する推力/風/空力テーブル等（CSV）。差し替えても config 内の値（パス）は変わりません。') \
+            .classes('text-caption text-grey')
 
         @ui.refreshable
         def listing():
@@ -361,11 +429,12 @@ def _file_manager(name: str):
             if missing:
                 ui.label('⚠ config が参照しているが見つからないファイル: ' + ', '.join(missing)) \
                     .classes('text-negative text-caption')
-            if not files:
-                ui.label('No files.').classes('text-caption text-grey')
+            data_files = [f for f in files if not f.get('is_config')]   # hide the .json configs
+            if not data_files:
+                ui.label('データファイルはありません。').classes('text-caption text-grey')
                 return
             with ui.list().props('bordered separator').classes('w-full'):
-                for f in files:
+                for f in data_files:
                     _file_row(name, f, referenced, listing)
 
         async def _on_upload(e):
@@ -397,17 +466,53 @@ def _file_manager(name: str):
 
 def _file_row(name: str, f: dict, referenced: set, listing):
     path, size = f['path'], f['size']
-    badge = '⚙ config' if f.get('is_config') else ('🔗 referenced' if path in referenced else '· data')
+    badge = '🔗 referenced' if path in referenced else '· data (unused)'
     with ui.item():
         with ui.item_section():
             ui.item_label(path)
             ui.item_label(f'{_human_size(size)}   {badge}').props('caption')
         with ui.item_section().props('side'):
             with ui.row().classes('q-gutter-xs'):
+                ui.button(icon='visibility', on_click=lambda p=path: _view_file(name, p)) \
+                    .props('dense flat').tooltip('View contents')
                 ui.button(icon='download', on_click=lambda p=path: _dl_file(name, p)) \
                     .props('dense flat').tooltip('Download')
                 ui.button(icon='delete', on_click=lambda p=path: _del_file(name, p, listing)) \
                     .props('dense flat color=negative').tooltip('Delete')
+
+
+def _view_file(name: str, path: str):
+    """Preview a referenced file's current contents so the user can judge whether to replace it:
+    a line chart (column0 vs each numeric column) plus a scrollable table for CSVs, or raw text."""
+    with ui.dialog() as dlg, ui.card().style('min-width:680px; max-width:92vw'):
+        ui.label(f'View: {path}').classes('text-subtitle1 q-mb-xs')
+        try:
+            text = _client().download_project_file(name, path).decode('utf-8', 'replace')
+        except Exception as exc:
+            ui.label(f'Cannot read file: {exc}').classes('text-negative')
+            ui.button('Close', on_click=dlg.close).props('flat')
+            dlg.open()
+            return
+
+        cols, rows = _csv_to_table(text)
+        if cols:
+            opts = _file_chart_opts(cols, rows)
+            if opts:
+                ui.echart(opts).style('width:100%;height:300px')
+            t_cols = [{'name': f'c{i}', 'label': c, 'field': f'c{i}', 'align': 'left'}
+                      for i, c in enumerate(cols)]
+            t_rows = [{f'c{i}': (r[i] if i < len(r) else '') for i in range(len(cols))} for r in rows]
+            ui.table(columns=t_cols, rows=t_rows, row_key='c0') \
+                .props('dense flat bordered').classes('w-full').style('max-height:300px')
+            ui.label(f'{len(rows)} rows × {len(cols)} cols'
+                     + ('  (先頭1000行まで表示)' if len(rows) >= 1000 else '')) \
+                .classes('text-caption text-grey')
+        else:
+            ui.textarea(value=text).props('readonly autogrow') \
+                .classes('w-full').style('font-family:monospace; max-height:360px; overflow:auto')
+
+        ui.button('Close', on_click=dlg.close).props('flat').classes('q-mt-sm')
+    dlg.open()
 
 
 def _dl_file(name: str, path: str):

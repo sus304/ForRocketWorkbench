@@ -8,7 +8,9 @@ import asyncio
 import io
 import re
 
-from web.service_ui.projects_ui import _sanitize_name, _upload_filename, _read_upload
+from web.service_ui.projects_ui import (
+    _sanitize_name, _upload_filename, _read_upload, _csv_to_table, _file_chart_opts,
+)
 
 _NAME_OK = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -94,3 +96,35 @@ def test_read_upload_handles_raw_and_missing():
     assert _run(_read_upload(_Evt(content=b"raw"))) == b"raw"
     assert _run(_read_upload(_Evt(contents=[io.BytesIO(b"multi")]))) == b"multi"
     assert _run(_read_upload(_Evt(type="x"))) == b""  # no content/file → empty, no crash
+
+
+# ── referenced-file preview ──────────────────────────────────────────────────────
+
+def test_csv_to_table_with_header():
+    cols, rows = _csv_to_table("t,thrust,mdot\n0,0,0\n1,8000,1.67\n")
+    assert cols == ["t", "thrust", "mdot"]
+    assert rows == [["0", "0", "0"], ["1", "8000", "1.67"]]
+
+
+def test_csv_to_table_headerless_numeric_synthesises_columns():
+    cols, rows = _csv_to_table("0,1\n1,2\n2,3\n")
+    assert cols == ["col0", "col1"]
+    assert len(rows) == 3
+
+
+def test_csv_to_table_non_tabular_returns_none():
+    assert _csv_to_table("just prose\nno columns") == (None, None)   # <2 columns
+    assert _csv_to_table("") == (None, None)
+
+
+def test_file_chart_opts_plots_each_numeric_series():
+    cols, rows = _csv_to_table("t,thrust,mdot\n0,0,0\n1,8000,1.67\n15,8000,1.67\n")
+    opts = _file_chart_opts(cols, rows)
+    assert [s["name"] for s in opts["series"]] == ["thrust", "mdot"]
+    assert opts["xAxis"]["name"] == "t"
+    assert opts["series"][0]["data"][1] == [1.0, 8000.0]
+
+
+def test_file_chart_opts_none_when_not_numeric():
+    cols, rows = _csv_to_table("name,note\napple,red\nsky,blue")
+    assert _file_chart_opts(cols, rows) is None
