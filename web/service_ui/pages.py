@@ -387,10 +387,21 @@ def _render_viewer(src: str, back_to: str) -> None:
     from urllib.parse import quote
     if config.viewer_enabled() and src.startswith('/api/results/'):
         iframe_src = f"{config.viewer_mount_path()}/index.html?src={quote(src, safe='/')}"
-        ui.html(
+        iframe_html = (
             f'<iframe src="{iframe_src}" title="3D viewer" allow="fullscreen" '
             'style="position:fixed;inset:0;width:100vw;height:100vh;border:0"></iframe>'
         )
+        # NiceGUI ≥3 sanitizes ui.html and strips <iframe> outright, so the viewer would silently
+        # vanish under the default — pass sanitize=False to keep it. That param doesn't exist in the
+        # 2.x on the local dev box (which doesn't sanitize at all), so only pass it where supported;
+        # a bare sanitize=False would raise TypeError there and break startup. Safe to disable:
+        # both interpolated values are under our control — job_id is an int route param, and `src`
+        # is quote()'d (any `"` becomes %22, so it can't break out of the src attribute).
+        import inspect
+        if 'sanitize' in inspect.signature(ui.html.__init__).parameters:
+            ui.html(iframe_html, sanitize=False)
+        else:
+            ui.html(iframe_html)
         ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to(back_to)) \
             .props('round color=primary').style('position:fixed;top:8px;left:8px;z-index:10') \
             .tooltip('Back')
