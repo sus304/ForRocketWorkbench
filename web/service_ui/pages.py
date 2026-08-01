@@ -380,26 +380,27 @@ def _render_status(job: dict):
             ui.label(job['work_dir']).classes('text-caption text-grey q-mt-xs')
 
 
-@ui.page('/jobs/{job_id}/view3d')
-def view3d_page(job_id: int):
-    """Full-viewport embedded 3D viewer for a job. When a viewer bundle is configured
-    (WB_VIEWER_DIST) it is served same-origin and loaded in an iframe pointed at this job's result
-    manifest; otherwise fall back to the external link or a hint. Iframe-only so the viewer's
-    Cesium/WebGL doesn't fight the NiceGUI runtime/layout (survey §10.8)."""
-    if config.viewer_enabled():
-        src = f"{config.viewer_mount_path()}/index.html?src=/api/results/jobs/{job_id}/"
+def _render_viewer(src: str, back_to: str) -> None:
+    """Full-viewport embedded 3D viewer over a same-origin result manifest base `src`. Iframe-only
+    so the viewer's Cesium/WebGL doesn't fight the NiceGUI runtime/layout (survey §10.8). `src`
+    must be a same-origin /api/results/ path; the viewer bundle (WB_VIEWER_DIST) does the rest."""
+    from urllib.parse import quote
+    if config.viewer_enabled() and src.startswith('/api/results/'):
+        iframe_src = f"{config.viewer_mount_path()}/index.html?src={quote(src, safe='/')}"
         ui.html(
-            f'<iframe src="{src}" title="3D viewer" allow="fullscreen" '
+            f'<iframe src="{iframe_src}" title="3D viewer" allow="fullscreen" '
             'style="position:fixed;inset:0;width:100vw;height:100vh;border:0"></iframe>'
         )
-        ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to(f'/jobs/{job_id}')) \
+        ui.button(icon='arrow_back', on_click=lambda: ui.navigate.to(back_to)) \
             .props('round color=primary').style('position:fixed;top:8px;left:8px;z-index:10') \
-            .tooltip('Back to job')
+            .tooltip('Back')
         return
-    service_header(active='Jobs')
+    service_header()
     with ui.column().classes('q-pa-md q-gutter-sm'):
         ext = config.external_3d_url()
-        if ext:
+        if config.viewer_enabled():   # viewer on, but src rejected
+            ui.label('無効なビューアソースです。').classes('text-negative')
+        elif ext:
             ui.label('内蔵3Dビューアは未設定です（WB_VIEWER_DIST）。外部ビューアを開きます。') \
                 .classes('text-caption text-grey')
             ui.button('Open external 3D', icon='open_in_new',
@@ -407,4 +408,49 @@ def view3d_page(job_id: int):
         else:
             ui.label('3Dビューアは未設定です（WB_VIEWER_DIST / WB_EXTERNAL_3D_URL）。') \
                 .classes('text-grey')
-        ui.button('← Job', on_click=lambda: ui.navigate.to(f'/jobs/{job_id}')).props('flat')
+        ui.button('← Back', on_click=lambda: ui.navigate.to(back_to)).props('flat')
+
+
+@ui.page('/jobs/{job_id}/view3d')
+def view3d_page(job_id: int):
+    """Embedded 3D viewer for a job's result manifest."""
+    _render_viewer(f'/api/results/jobs/{job_id}/', back_to=f'/jobs/{job_id}')
+
+
+@ui.page('/view3d')
+def view3d_generic_page(src: str = ''):
+    """Embedded 3D viewer for an arbitrary same-origin result manifest base (e.g. a filesystem
+    result set). `src` is the manifest base under /api/results/..."""
+    _render_viewer(src, back_to='/results')
+
+
+@ui.page('/results')
+def fs_results_page():
+    """Browse filesystem result sets (WB_RESULT_ROOTS) and open each in the 3D viewer. The links
+    live here in Workbench (not in the viewer) so no Workbench-specific URL is baked into the
+    viewer (feedback #1)."""
+    from web.service_ui.results_api import scan_result_sets
+    service_header(active='Results')
+    with ui.column().classes('q-pa-md w-full'):
+        ui.label('Analysis outputs').classes('text-h6 q-mb-sm')
+        roots = config.result_roots()
+        if not roots:
+            ui.label('結果ルートは未設定です（WB_RESULT_ROOTS）。').classes('text-grey')
+            return
+        for name, root_dir in sorted(roots.items()):
+            with ui.card().classes('w-full q-mb-md'):
+                ui.label(f'📂 {name}').classes('text-subtitle1')
+                try:
+                    sets = scan_result_sets(root_dir)
+                except OSError as exc:
+                    ui.label(f'走査できません: {exc}').classes('text-negative text-caption')
+                    continue
+                if not sets:
+                    ui.label('（閲覧可能な成果物なし）').classes('text-caption text-grey')
+                    continue
+                with ui.list().props('bordered separator').classes('w-full'):
+                    for rel in sets:
+                        base = f'/api/results/fs/{name}/{rel}/' if rel else f'/api/results/fs/{name}/'
+                        with ui.item():
+                            with ui.item_section():
+                                ui.link(rel or '(root)', f'/view3d?src={base}')

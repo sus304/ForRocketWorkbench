@@ -29,6 +29,12 @@ def service_header(active: str = "") -> None:
             ui.button(label, on_click=lambda p=path: ui.navigate.to(p)).props("flat") \
                 .classes("text-white " +
                          ("text-weight-bold" if active == label else "text-weight-regular"))
+        # Filesystem results browser — only when result roots are configured (WB_RESULT_ROOTS).
+        from web.service_ui import config as _cfg
+        if _cfg.result_roots():
+            ui.button("Results", on_click=lambda: ui.navigate.to("/results")).props("flat") \
+                .classes("text-white " +
+                         ("text-weight-bold" if active == "Results" else "text-weight-regular"))
         with ui.dropdown_button("Tools", auto_close=True).props("flat") \
                 .classes("text-white " +
                          ("text-weight-bold" if active == "Tools" else "text-weight-regular")):
