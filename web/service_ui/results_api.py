@@ -139,7 +139,10 @@ _VIEW_EXTS = {".kml", ".kmz", ".csv", ".geojson", ".json"}
 _KIND_BY_EXT = {".kml": "kml", ".kmz": "kmz", ".csv": "csv", ".geojson": "geojson"}
 _MEDIA = {".kml": "application/vnd.google-earth.kml+xml", ".kmz": "application/vnd.google-earth.kmz",
           ".csv": "text/csv", ".geojson": "application/geo+json", ".json": "application/json"}
-_MAX_LIST_DEPTH = 3
+# Deep enough to reach a run's work dir when a root points at the top of an analysis tree that
+# nests by vehicle/phase/study/case. Measured on the real trees: raising this from 3 adds one
+# entry to a flat tool-output root, so there is no need for a per-root depth setting.
+_MAX_LIST_DEPTH = 5
 
 
 def fs_scan_manifest(target: Path, root: str, rel: str, generated: str = "") -> dict:
@@ -192,6 +195,14 @@ def _safe_target(root_dir: Path, rel: str) -> Path:
     if rp != tp and rp not in tp.parents:
         raise HTTPException(400, "path escapes root")
     return target
+
+
+def resolve_result_path(root: str, rel: str) -> Path:
+    """Resolve a browsed (root, rel) pair to an absolute server path under a configured root,
+    applying the gateway's containment rules. Public because the results-browser page needs the
+    same resolution to hand a vetted path to the import API — the allow-list is enforced here,
+    on this side of the bearer token."""
+    return _safe_target(_root_dir(root), rel)
 
 
 @app.get("/api/results/roots")

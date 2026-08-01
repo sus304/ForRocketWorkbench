@@ -14,6 +14,7 @@ live at module top and are unit-tested; the page bodies are covered by manual/e2
 """
 from __future__ import annotations
 
+import asyncio
 import datetime
 from pathlib import Path
 from typing import Optional
@@ -95,6 +96,16 @@ def filter_jobs(jobs: list, query: str = '', mode: str = 'all', status: str = 'a
             return ' '.join(str(j.get(k, '')) for k in ('id', 'model_name', 'project', 'memo')).lower()
         out = [j for j in out if q in _hay(j)]
     return sorted(out, key=lambda j: j.get('id', 0), reverse=(sort != 'oldest'))
+
+
+def _reason(exc: Exception) -> str:
+    """Readable text for a failure shown in a toast. A path rejected by the results gateway
+    arrives as an HTTPException (message in `.detail`) and a rejected import as ValueError(detail);
+    the default str() of the former is unhelpful."""
+    detail = getattr(exc, 'detail', None)
+    if detail:
+        return str(detail)
+    return str(exc) or exc.__class__.__name__
 
 
 # ── Client access ─────────────────────────────────────────────────────────────
@@ -231,6 +242,11 @@ def _job_row(job: dict, refresh=None, ask_confirm=None):
             head = f'{job["mode"]}  ·  {job.get("model_name") or "—"}'
             if proj:
                 head += f'  ·  📁 {proj}'
+            # An imported job was computed elsewhere and copied in (source_path set), so its
+            # timestamps are the source run's, not a queue run's — say so rather than letting it
+            # read as a job this service executed.
+            if job.get('source_path'):
+                head += '  ·  ⤵ imported'
             ui.link(head, f'/jobs/{jid}').classes('text-body1')
             sub = status
             if frac is not None and prog:
@@ -465,4 +481,71 @@ def fs_results_page():
                         base = f'/api/results/fs/{name}/{rel}/' if rel else f'/api/results/fs/{name}/'
                         with ui.item():
                             with ui.item_section():
-                                ui.link(rel or '(root)', f'/view3d?src={base}')
+                                # Open in the shared, reused viewer tab (a real <a target=name>,
+                                # so it's gesture-native — no popup block — and reuses the same
+                                # "forrocket_viewer" window the job-page "Open in detailed 3D" uses,
+                                # rather than navigating this Workbench tab away).
+                                ui.link(rel or '(root)', f'/view3d?src={base}') \
+                                    .props('target=forrocket_viewer')
+                            with ui.item_section().props('side'):
+                                ui.button(icon='playlist_add',
+                                          on_click=lambda n=name, r=rel: import_dialog(n, r)) \
+                                    .props('flat dense color=primary') \
+                                    .tooltip('ジョブとして取り込む')
+
+
+async def _off_loop(fn, *args):
+    """Run a blocking ServiceClient call off the event loop (same reason as projects_ui's
+    _upload_to_store: an import copies and post-processes, which takes seconds)."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: fn(*args))
+
+
+async def import_dialog(root: str, rel: str):
+    """Preview an analysis-output directory and, if it is an importable result, copy it into the
+    job store as a completed job. The path is resolved against the configured result roots here,
+    so the API is only ever handed a vetted absolute path."""
+    from web.service_ui.results_api import resolve_result_path
+    try:
+        src = resolve_result_path(root, rel)
+        info = await _off_loop(client().inspect_import, str(src))
+    except Exception as exc:
+        notify(f'取り込み可否を確認できません: {_reason(exc)}', type='negative', multi_line=True)
+        return
+
+    with ui.dialog() as dialog, ui.card().style('min-width:520px'):
+        ui.label('結果をジョブとして取り込む').classes('text-h6')
+        ui.label(info['source']).classes('text-caption text-grey break-all')
+        with ui.grid(columns=2).classes('q-mt-sm text-body2'):
+            ui.label('モード'); ui.label(info.get('mode') or '—')
+            ui.label('Model ID'); ui.label(info.get('model_id') or '—')
+            ui.label('サイズ'); ui.label(f"{info.get('bytes', 0) / 1e6:,.1f} MB "
+                                       f"／ {info.get('files', 0):,} ファイル")
+            ui.label('実行日時'); ui.label(info.get('modified') or '—')
+            ui.label('後処理'); ui.label('済み（そのまま登録）' if info.get('posted')
+                                       else '未実行（取り込み時に実行）')
+        memo_in = ui.input('memo', value=rel or root) \
+            .props('dense outlined').classes('w-full q-mt-sm')
+        ui.label('元ディレクトリはコピー元として残り、変更されません。') \
+            .classes('text-caption text-grey q-mt-xs')
+
+        if not info['ok']:
+            ui.label(info['error']).classes('text-negative text-body2 q-mt-sm')
+
+        async def _do():
+            dialog.close()
+            notify('取り込み中…', type='ongoing')
+            try:
+                job = await _off_loop(client().create_import, info['source'],
+                                      memo_in.value or '')
+            except Exception as exc:
+                notify(f'取り込みに失敗しました: {_reason(exc)}', type='negative', multi_line=True)
+                return
+            notify(f"job #{job['id']} として取り込みました。", type='positive')
+            ui.navigate.to(f"/jobs/{job['id']}")
+
+        with ui.row().classes('q-mt-md justify-end full-width q-gutter-sm'):
+            ui.button('閉じる', on_click=dialog.close).props('flat')
+            btn = ui.button('取り込む', on_click=_do).props('color=primary')
+            btn.set_enabled(bool(info['ok']))
+    dialog.open()

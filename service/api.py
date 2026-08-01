@@ -20,7 +20,8 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.responses import StreamingResponse
 
 from runner_tool.run_manifest import RunManifest
-from service import plots, projects, results
+from service import imports, plots, projects, results
+from service.imports import ImportRejected
 from service.projects import (
     ProjectConflict, ProjectError, ProjectExists, ProjectNotFound,
 )
@@ -95,6 +96,7 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
             "error_message": job.error_message,
             "project": getattr(job, "project", "") or "",
             "memo": getattr(job, "memo", "") or "",
+            "source_path": getattr(job, "source_path", "") or "",
             "capability": {"can_cancel": job.status in _ACTIVE,
                            "result_api": _result_api_available(job)},
             "progress": progress_of(job),
@@ -221,6 +223,25 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
             raise HTTPException(422, f"closure build failed: {e}")
         store.mark_queued(job_id)
         return {"id": job_id, "status": QUEUED}
+
+    # ── import an externally produced result (service.imports) ────────────────
+    @app.get("/imports/inspect", dependencies=auth)
+    def inspect_import(path: str = Query(...)):
+        """Preview whether a directory can be imported. Read-only; never 4xx for a merely
+        unsuitable directory — the caller renders `ok`/`error` in its confirmation dialog."""
+        return imports.inspect(path, store=store, data_root=worker.data_root)
+
+    @app.post("/imports", dependencies=auth)
+    async def create_import(path: str = Form(...), memo: str = Form("")):
+        """Copy an externally produced result into the job store and register it as completed.
+        Bypasses the worker queue (nothing is computed), so it never waits behind a running job;
+        the copy + post run in a threadpool so the event loop stays responsive."""
+        from fastapi.concurrency import run_in_threadpool
+        try:
+            job_id = await run_in_threadpool(imports.import_result, store, worker, path, memo)
+        except ImportRejected as e:
+            raise HTTPException(422, str(e))
+        return job_dict(store.get(job_id))
 
     @app.put("/jobs/{job_id}/memo", dependencies=auth)
     def set_memo(job_id: int, memo: str = Form("")):

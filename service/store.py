@@ -67,6 +67,12 @@ class Job(Base):
     project = Column(String, default="")
     memo = Column(Text, default="")
 
+    # source_path: for a job imported from a result directory produced outside the service
+    # (service.imports), the resolved path it was copied from. Empty for computed jobs, so a
+    # non-empty value is what marks a job as imported. Also the duplicate-import key — it is the
+    # resolved realpath, so the same directory reached through two configured roots is one entry.
+    source_path = Column(String, default="")
+
     summary = Column(Text, default="")
     error_message = Column(Text, default="")
 
@@ -105,9 +111,9 @@ class JobStore:
         from sqlalchemy import text
         with self._engine.begin() as conn:
             existing = {row[1] for row in conn.execute(text("PRAGMA table_info(jobs)"))}
-            for col in ("project", "memo"):
+            for col, coltype in (("project", "VARCHAR"), ("memo", "TEXT"),
+                                 ("source_path", "VARCHAR")):
                 if col not in existing:
-                    coltype = "VARCHAR" if col == "project" else "TEXT"
                     conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {col} {coltype} DEFAULT ''"))
 
     # --- writes -------------------------------------------------------------
@@ -129,9 +135,11 @@ class JobStore:
             return job.id
 
     def create_preparing(self, mode: str, model_name: str = "", use_max_thread: bool = False,
-                         input_ref: str = "", input_snapshot: str = "", project: str = "") -> int:
+                         input_ref: str = "", input_snapshot: str = "", project: str = "",
+                         source_path: str = "", memo: str = "") -> int:
         """Create a job in `preparing` (not yet claimable). Call mark_queued() once inputs
-        are staged."""
+        are staged. An import never calls mark_queued: it goes straight to completed once the
+        copy and post are done, so the worker never claims it."""
         with self._Session() as session:
             job = Job(
                 mode=mode,
@@ -142,6 +150,8 @@ class JobStore:
                 input_ref=input_ref,
                 input_snapshot=input_snapshot,
                 project=project,
+                source_path=source_path,
+                memo=memo,
             )
             session.add(job)
             session.commit()
@@ -149,6 +159,17 @@ class JobStore:
 
     def set_memo(self, job_id: int, memo: str) -> None:
         self._update(job_id, memo=memo)
+
+    def set_times(self, job_id: int, started_at=None, finished_at=None) -> None:
+        """Override the run timestamps. Used by the importer to date a job by when its source
+        result was produced rather than by when it was imported."""
+        values = {}
+        if started_at is not None:
+            values["started_at"] = started_at
+        if finished_at is not None:
+            values["finished_at"] = finished_at
+        if values:
+            self._update(job_id, **values)
 
     def mark_queued(self, job_id: int) -> None:
         self._update(job_id, status=QUEUED)
@@ -232,6 +253,20 @@ class JobStore:
     def get(self, job_id: int) -> Optional[Job]:
         with self._Session() as session:
             job = session.get(Job, job_id)
+            if job is not None:
+                session.expunge(job)
+            return job
+
+    def find_by_source(self, source_path: str) -> Optional[Job]:
+        """The most recent job imported from this source directory, if any (duplicate-import
+        guard). Newest-first so a retry after a failed import sees the failed attempt, which the
+        importer allows to be superseded."""
+        if not source_path:
+            return None
+        with self._Session() as session:
+            job = session.execute(
+                select(Job).where(Job.source_path == source_path).order_by(Job.id.desc()).limit(1)
+            ).scalars().first()
             if job is not None:
                 session.expunge(job)
             return job

@@ -97,6 +97,22 @@ class ServiceClient:
         r.raise_for_status()
         return r.json()
 
+    # ── import an externally produced result (service.imports) ───────────────
+
+    def inspect_import(self, path: str) -> dict:
+        r = self.s.get(self._url("/imports/inspect"), headers=self.headers,
+                       params={"path": path})
+        r.raise_for_status()
+        return r.json()
+
+    def create_import(self, path: str, memo: str = "") -> dict:
+        r = self.s.post(self._url("/imports"), headers=self.headers,
+                        data={"path": path, "memo": memo})
+        if r.status_code == 422:
+            raise ValueError(r.json().get("detail", "import rejected"))
+        r.raise_for_status()
+        return r.json()
+
     # ── server-side project store (design ui_refresh §3) ─────────────────────
 
     def list_projects(self) -> list:

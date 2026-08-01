@@ -176,6 +176,16 @@ class Worker:
         out, _ = proc.communicate()
         return proc.returncode, out or ""
 
+    def run_post(self, run_dir, work_name: str, mode: str):
+        """Post-process a work dir that already holds solver output. The normal path posts inside
+        _execute; this is the entry point for service.imports, which registers a result computed
+        elsewhere and still needs the plots/KML/summary the result API and 3D viewer read.
+        Returns (returncode, output); (0, "") for a mode post.py does not handle."""
+        flag = _POST_FLAG.get(mode)
+        if flag is None:
+            return 0, ""
+        return self._run_plain([self._python, self._post_py, flag, work_name], Path(run_dir))
+
     def _run_plain(self, cmd, run_dir: Path):
         proc = subprocess.Popen(cmd, cwd=str(run_dir), stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, env=self._env)
