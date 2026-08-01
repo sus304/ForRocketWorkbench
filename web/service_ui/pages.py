@@ -15,7 +15,6 @@ live at module top and are unit-tested; the page bodies are covered by manual/e2
 from __future__ import annotations
 
 import datetime
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -403,20 +402,10 @@ def _render_viewer(src: str, back_to: str) -> None:
             ui.html(iframe_html, sanitize=False)
         else:
             ui.html(iframe_html)
-        # Back: this page may be opened in its own tab (window.open from "Open in detailed 3D") or
-        # in-place (a ui.link from /results). If it was script-opened (window.opener set), navigating
-        # `back_to` here would turn the viewer tab into a second Workbench tab — so close this tab
-        # instead and let the original tab regain focus. Otherwise (same-tab entry) navigate back in
-        # place. The setTimeout guards the rare case where close() is blocked despite an opener.
-        back_url = json.dumps(back_to)
-        back_js = (
-            f'if (window.opener) {{ window.close(); '
-            f'setTimeout(function(){{ if (!window.closed) {{ window.location.href={back_url}; }} }}, 120); }} '
-            f'else {{ window.location.href={back_url}; }}'
-        )
-        ui.button(icon='arrow_back', on_click=lambda: ui.run_javascript(back_js)) \
-            .props('round color=primary').style('position:fixed;top:8px;left:8px;z-index:10') \
-            .tooltip('Back')
+        # No in-page Back button here: it floated over the embedded viewer's own top-left toolbar
+        # (RocketEarth's file controls) and collided with it. The viewer fills its own tab — closing
+        # the tab (job "Open in detailed 3D") or the browser Back button (same-tab entry from
+        # /results) is enough. The fallback branch below (viewer off / src rejected) keeps its Back.
         return
     service_header()
     with ui.column().classes('q-pa-md q-gutter-sm'):
