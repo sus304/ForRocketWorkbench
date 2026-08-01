@@ -686,18 +686,19 @@ def render_result(client, job_id, mode: str, key) -> None:
 
     # Detailed-3D viewer link (config-gated, neutral). Prefer the same-origin embedded viewer
     # (WB_VIEWER_DIST) at /jobs/{id}/view3d; else fall back to an external URL (WB_EXTERNAL_3D_URL).
+    # Open into a single reused tab (named window) so repeated clicks don't pile up tabs.
     from web.service_ui import config as _cfg
     if _safe(lambda: _cfg.viewer_enabled(), False):
         with ui.row().classes('q-mb-sm'):
             ui.button('Open in detailed 3D',
-                      on_click=lambda j=job_id: ui.navigate.to(f'/jobs/{j}/view3d', new_tab=True)) \
+                      on_click=lambda j=job_id: _open_in_viewer_tab(f'/jobs/{j}/view3d')) \
                 .props('flat color=primary icon=open_in_new')
     else:
         ext_3d = _safe(lambda: _cfg.external_3d_url(), '')
         if ext_3d:
             with ui.row().classes('q-mb-sm'):
                 ui.button('Open in detailed 3D',
-                          on_click=lambda u=ext_3d: ui.navigate.to(u, new_tab=True)) \
+                          on_click=lambda u=ext_3d: _open_in_viewer_tab(u)) \
                     .props('flat color=primary icon=open_in_new')
 
     if mode == 'sensitivity':
@@ -723,6 +724,12 @@ def _safe(fn, default):
         return fn()
     except Exception:
         return default
+
+
+def _open_in_viewer_tab(url: str) -> None:
+    """Open the detailed-3D viewer in a single reused browser tab. window.open with a fixed window
+    NAME reuses (and refocuses) that tab on repeated clicks instead of piling up new tabs."""
+    ui.run_javascript(f'window.open({_json.dumps(url)}, "forrocket_viewer")')
 
 
 def _build_flight_section(client, job_id, meta: dict, key, summary_items: list) -> None:
