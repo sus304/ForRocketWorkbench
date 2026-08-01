@@ -84,6 +84,23 @@ def viewer_enabled() -> bool:
     return bool(viewer_dist())
 
 
+def result_roots() -> dict:
+    """Parse WB_RESULT_ROOTS ('name=path,name2=path2') into {name: absolute Path} for the generic
+    read-only result gateway. Product-neutral: no paths live in the code — the admin configures
+    the roots on the server (never in the repo). Unset → {} (the gateway serves nothing)."""
+    raw = os.environ.get("WB_RESULT_ROOTS", "").strip()
+    out: dict = {}
+    for pair in raw.replace(";", ",").split(","):
+        pair = pair.strip()
+        if "=" not in pair:
+            continue
+        name, _, path = pair.partition("=")
+        name, path = name.strip(), os.path.expanduser(path.strip())
+        if name and path:
+            out[name] = Path(path).resolve()
+    return out
+
+
 def get_client(data_root=None, session=None) -> ServiceClient:
     root = default_data_root() if data_root is None else Path(data_root)
     return ServiceClient(service_url(), load_or_create_token(root), session=session)

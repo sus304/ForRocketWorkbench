@@ -14,6 +14,11 @@ extract) — no new filesystem traversal here. Generic filesystem roots are serv
 """
 from __future__ import annotations
 
+import datetime
+import json
+import os
+from pathlib import Path
+
 from fastapi import HTTPException
 from fastapi.responses import Response
 from nicegui import app
@@ -117,3 +122,108 @@ def job_flight_log(job_id: int, phase: str = "stage1"):
     except Exception as exc:
         raise HTTPException(404, f"flight_log not available: {exc}")
     return Response(content=data, media_type="text/csv")
+
+
+# ── generic read-only filesystem result gateway (WB_RESULT_ROOTS) ─────────────────
+# Serves result files (and a synthesised manifest) from admin-configured roots so results that
+# aren't Workbench jobs (e.g. analysis outputs elsewhere on the server) can be viewed too. The
+# code is product-neutral: it classifies by file EXTENSION only and carries no directory/tool
+# names — those live on the server filesystem + the WB_RESULT_ROOTS env value, never in the repo.
+# Owners may drop a static index.json to control roles/labels; otherwise a neutral manifest is
+# synthesised. Security: containment (realpath under the root), no symlinks, extension allow-list,
+# `cases/` excluded (a Monte-Carlo cases/ can hold tens of thousands of files).
+_VIEW_EXTS = {".kml", ".kmz", ".csv", ".geojson", ".json"}
+_KIND_BY_EXT = {".kml": "kml", ".kmz": "kmz", ".csv": "csv", ".geojson": "geojson"}
+_MEDIA = {".kml": "application/vnd.google-earth.kml+xml", ".kmz": "application/vnd.google-earth.kmz",
+          ".csv": "text/csv", ".geojson": "application/geo+json", ".json": "application/json"}
+_MAX_LIST_DEPTH = 3
+
+
+def fs_scan_manifest(target: Path, root: str, rel: str, generated: str = "") -> dict:
+    """Neutral manifest for a directory: a static index.json wins; otherwise synthesise items from
+    the directory's own files, classifying by extension only (no domain knowledge). Pure/testable."""
+    idx = target / "index.json"
+    if idx.is_file() and not idx.is_symlink():
+        try:
+            return json.loads(idx.read_text())
+        except (ValueError, OSError):
+            pass  # malformed static manifest → fall back to synthesis
+    items = []
+    for name in sorted(os.listdir(target)):
+        p = target / name
+        if p.is_symlink() or not p.is_file():
+            continue
+        kind = _KIND_BY_EXT.get(p.suffix.lower())
+        if not kind:
+            continue
+        items.append({
+            "id": name, "name": name, "kind": kind, "path": name,
+            "role": "track" if kind == "csv" else "nominal",   # neutral defaults; owner may override
+            "group": "", "bytes": p.stat().st_size,
+        })
+    return {"schema": "result-manifest/1", "title": rel or root, "generated": generated,
+            "source": {"kind": "fs", "root": root, "rel": rel}, "items": items}
+
+
+def _root_dir(root: str) -> Path:
+    d = config.result_roots().get(root)
+    if d is None or not d.is_dir():
+        raise HTTPException(404, f"unknown result root: {root}")
+    return d
+
+
+def _safe_target(root_dir: Path, rel: str) -> Path:
+    """Resolve root_dir/rel, refusing traversal, symlinks and cases/. Containment via realpath."""
+    v = (rel or "").replace("\\", "/").strip("/")
+    if not v:
+        return root_dir
+    parts = v.split("/")
+    if ".." in parts or v.startswith("~") or "cases" in parts:
+        raise HTTPException(404, "not served")
+    target = root_dir / v
+    rp, tp = root_dir.resolve(), target.resolve()
+    if rp != tp and rp not in tp.parents:
+        raise HTTPException(400, "path escapes root")
+    return target
+
+
+@app.get("/api/results/roots")
+def result_roots_list():
+    return {"roots": sorted(config.result_roots().keys())}
+
+
+@app.get("/api/results/fs/{root}/_list")
+def fs_list(root: str):
+    """List result sets under a root: directories (depth ≤ 3, cases/ and symlinks skipped) that
+    contain at least one viewable file. Directory names come from the live filesystem, not code."""
+    root_dir = _root_dir(root)
+    sets = []
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        rel = os.path.relpath(dirpath, root_dir)
+        depth = 0 if rel == "." else rel.count(os.sep) + 1
+        if depth >= _MAX_LIST_DEPTH:
+            dirnames[:] = []
+        dirnames[:] = [d for d in dirnames
+                       if d != "cases" and not os.path.islink(os.path.join(dirpath, d))]
+        if any(os.path.splitext(f)[1].lower() in _KIND_BY_EXT for f in filenames):
+            sets.append("" if rel == "." else rel.replace(os.sep, "/"))
+    return {"root": root, "sets": sorted(sets)}
+
+
+@app.get("/api/results/fs/{root}/{sub:path}")
+def fs_get(root: str, sub: str):
+    root_dir = _root_dir(root)
+    if sub == "index.json" or sub.endswith("/index.json"):
+        rel = sub[: -len("index.json")].strip("/")
+        target = _safe_target(root_dir, rel)
+        if not target.is_dir() or target.is_symlink():
+            raise HTTPException(404, "not a result directory")
+        return fs_scan_manifest(target, root, rel,
+                                datetime.datetime.now().isoformat(timespec="seconds"))
+    target = _safe_target(root_dir, sub)
+    if target.is_symlink() or not target.is_file():
+        raise HTTPException(404, "not found")
+    ext = target.suffix.lower()
+    if ext not in _VIEW_EXTS:
+        raise HTTPException(415, "unsupported file type")
+    return Response(content=target.read_bytes(), media_type=_MEDIA.get(ext, "application/octet-stream"))
