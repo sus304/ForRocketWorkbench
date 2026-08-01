@@ -72,10 +72,13 @@ def build_job_manifest(job_id: int, status: dict, meta: dict, generated: str = "
             "role": role,
             "group": "経路" if role in ("nominal", "iip") else "分散",
         })
-    if "flight" in (meta.get("kinds") or []):
+    # One flight_log per phase (stage1 ascent / ballistic descent). `path` is pure path segments —
+    # the viewer encodeURIComponents each segment, so a query string (?phase=) would break; the
+    # phase is a path segment instead (review: RocketEarth feedback #2).
+    for phase in meta.get("phases", []):
         items.append({
-            "id": "flight_log", "name": "flight_log", "kind": "csv",
-            "path": "flight_log", "role": "track", "group": "経路",
+            "id": f"flight_log_{phase}", "name": f"{phase} flight_log", "kind": "csv",
+            "path": f"flight_log/{phase}", "role": "track", "group": "経路",
         })
     return {
         "schema": "result-manifest/1",
@@ -92,7 +95,6 @@ def _client():
 
 @app.get("/api/results/jobs/{job_id}/index.json")
 def job_manifest(job_id: int):
-    import datetime
     c = _client()
     try:
         status = c.status(job_id)
@@ -113,10 +115,11 @@ def job_kml(job_id: int, name: str):
     return Response(content=data, media_type="application/vnd.google-earth.kml+xml")
 
 
-@app.get("/api/results/jobs/{job_id}/flight_log")
-def job_flight_log(job_id: int, phase: str = "stage1"):
-    # csv export needs the selection to resolve to exactly one log; a trajectory job has a
-    # stage1 (ascent) and a ballistic log per case, so pin a phase (default the ascent track).
+@app.get("/api/results/jobs/{job_id}/flight_log/{phase}")
+def job_flight_log(job_id: int, phase: str):
+    # Phase is a path segment (not a query) so the viewer's per-segment encodeURIComponent keeps it
+    # intact. csv export needs the selection to resolve to exactly one log, which a single phase
+    # (stage1 / ballistic) of the nominal case does.
     try:
         data = _client().extract_file(job_id, "nominal", fmt="csv", phase=phase, max_points=0)
     except Exception as exc:
@@ -145,9 +148,13 @@ def fs_scan_manifest(target: Path, root: str, rel: str, generated: str = "") -> 
     idx = target / "index.json"
     if idx.is_file() and not idx.is_symlink():
         try:
-            return json.loads(idx.read_text())
+            data = json.loads(idx.read_text())
         except (ValueError, OSError):
-            pass  # malformed static manifest → fall back to synthesis
+            data = None
+        # Only trust it if it actually looks like a viewer manifest — a dir may hold an unrelated
+        # index.json; otherwise fall back to synthesis (review: RocketEarth feedback #3).
+        if isinstance(data, dict) and str(data.get("schema", "")).startswith("result-manifest/"):
+            return data
     items = []
     for name in sorted(os.listdir(target)):
         p = target / name
@@ -192,11 +199,10 @@ def result_roots_list():
     return {"roots": sorted(config.result_roots().keys())}
 
 
-@app.get("/api/results/fs/{root}/_list")
-def fs_list(root: str):
-    """List result sets under a root: directories (depth ≤ 3, cases/ and symlinks skipped) that
-    contain at least one viewable file. Directory names come from the live filesystem, not code."""
-    root_dir = _root_dir(root)
+def scan_result_sets(root_dir: Path) -> list:
+    """Directories (depth ≤ 3, cases/ and symlinks skipped) under root_dir that hold at least one
+    viewable file. Names come from the live filesystem, not code. Shared by the _list endpoint and
+    the Workbench results-browser UI (so the viewer never has to know Workbench URLs — feedback #1)."""
     sets = []
     for dirpath, dirnames, filenames in os.walk(root_dir):
         rel = os.path.relpath(dirpath, root_dir)
@@ -207,7 +213,12 @@ def fs_list(root: str):
                        if d != "cases" and not os.path.islink(os.path.join(dirpath, d))]
         if any(os.path.splitext(f)[1].lower() in _KIND_BY_EXT for f in filenames):
             sets.append("" if rel == "." else rel.replace(os.sep, "/"))
-    return {"root": root, "sets": sorted(sets)}
+    return sorted(sets)
+
+
+@app.get("/api/results/fs/{root}/_list")
+def fs_list(root: str):
+    return {"root": root, "sets": scan_result_sets(_root_dir(root))}
 
 
 @app.get("/api/results/fs/{root}/{sub:path}")

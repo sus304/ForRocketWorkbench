@@ -56,6 +56,18 @@ def test_fs_scan_manifest_static_index_json_wins(tmp_path):
     assert m == owner_manifest      # served verbatim; roles/labels are the owner's, not synthesised
 
 
+def test_fs_scan_manifest_ignores_non_manifest_index_json(tmp_path):
+    """A dir may hold an unrelated index.json (not a viewer manifest); it must be ignored and the
+    manifest synthesised instead (review: RocketEarth feedback #3)."""
+    d = tmp_path / "set"
+    d.mkdir()
+    (d / "a.kml").write_text("<kml/>")
+    (d / "index.json").write_text(json.dumps({"some": "tool config", "not": "a manifest"}))
+    m = fs_scan_manifest(d, "r", "set")
+    assert m["schema"] == "result-manifest/1"                 # synthesised, not the stray file
+    assert [it["id"] for it in m["items"]] == ["a.kml"]
+
+
 def test_fs_scan_manifest_ignores_symlinked_files(tmp_path):
     d = tmp_path / "set"; d.mkdir()
     (d / "real.kml").write_text("<kml/>")
