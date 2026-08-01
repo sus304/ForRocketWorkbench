@@ -27,13 +27,16 @@ def _grain_svg(d_port_mm: float, d_outer_mm: float, L_grain_mm: float) -> str:
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VW} {VH}" '
-        f'width="100%" style="background:#0d1117;border-radius:6px;display:block">'
+        f'width="100%" style="background:var(--wb-bg);border-radius:6px;display:block">'
     ]
 
     # Cross-section
     parts.append(f'<text x="{cs_cx}" y="11" text-anchor="middle" fill="#546e7a" font-size="9" font-family="monospace">CROSS-SECTION</text>')
     parts.append(f'<circle cx="{cs_cx}" cy="{cs_cy:.1f}" r="{r_draw}" fill="#5d3519" stroke="#ffa726" stroke-width="1.5"/>')
-    parts.append(f'<circle cx="{cs_cx}" cy="{cs_cy:.1f}" r="{r_in_draw:.1f}" fill="#0d1117" stroke="#64b5f6" stroke-width="1"/>')
+    # The port reads as a hole punched through to the page, so it takes the page-ground token.
+    # Set via `style` rather than the `fill` attribute: var() in an SVG presentation attribute is
+    # not reliably supported, while a style declaration always is.
+    parts.append(f'<circle cx="{cs_cx}" cy="{cs_cy:.1f}" r="{r_in_draw:.1f}" style="fill:var(--wb-bg)" stroke="#64b5f6" stroke-width="1"/>')
     parts.append(f'<text x="{cs_cx}" y="{cs_cy+r_draw+14:.1f}" text-anchor="middle" fill="#ffa726" font-size="9" font-family="monospace">Ø{d_outer_mm:.0f} mm</text>')
     if r_in_draw > 12:
         parts.append(f'<text x="{cs_cx}" y="{cs_cy:.1f}" text-anchor="middle" dominant-baseline="middle" fill="#64b5f6" font-size="9" font-family="monospace">Ø{d_port_mm:.0f}</text>')
@@ -50,7 +53,7 @@ def _grain_svg(d_port_mm: float, d_outer_mm: float, L_grain_mm: float) -> str:
     parts.append(
         f'<rect x="{sv_x0}" y="{sv_cy-h_in/2:.1f}" '
         f'width="{sv_w:.1f}" height="{h_in:.1f}" '
-        f'fill="#0d1117" stroke="#64b5f6" stroke-width="1"/>'
+        f'style="fill:var(--wb-bg)" stroke="#64b5f6" stroke-width="1"/>'
     )
 
     # Length dimension
@@ -163,7 +166,7 @@ def engine_page():
             ]
             with ui.grid(columns=3).classes('w-full q-gutter-xs'):
                 for label, val, unit in metrics:
-                    with ui.card().classes('q-pa-sm').style('background:#1a2744'):
+                    with ui.card().classes('q-pa-sm wb-subpanel'):
                         ui.label(label).classes('text-caption text-grey')
                         ui.label(f'{val}').classes('text-weight-bold text-h6')
                         ui.label(unit).classes('text-caption text-grey')

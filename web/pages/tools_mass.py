@@ -31,7 +31,7 @@ def _cg_svg(rows: list, xcg: float) -> str:
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VW} {VH}" '
-        f'width="100%" style="background:#0d1117;border-radius:6px;display:block;margin-top:6px">'
+        f'width="100%" style="background:var(--wb-bg);border-radius:6px;display:block;margin-top:6px">'
     ]
 
     # Axis
@@ -161,7 +161,7 @@ def mass_page():
                     ('Iyy (lateral)',f"{res['Iyy']:.6f}",       'kg·m²'),
                     ('Ixx (axial)',  f"{res['Ixx']:.6f}",       'kg·m²'),
                 ]:
-                    with ui.card().classes('q-pa-sm').style('background:#1a2744'):
+                    with ui.card().classes('q-pa-sm wb-subpanel'):
                         ui.label(label).classes('text-caption text-grey')
                         ui.label(f'{value} {unit}').classes('text-weight-bold')
 
@@ -276,7 +276,7 @@ def mass_page():
             _el['result_panel'] = ui.column().classes('w-full')
 
         # Notes
-        with ui.card().classes('w-full').style('background:#1a2744'):
+        with ui.card().classes('w-full wb-subpanel'):
             ui.label('Notes').classes('text-caption text-grey q-mb-xs')
             for note in [
                 'Iyy_self: lateral MOI of each component about its own CG [kg·m²]',

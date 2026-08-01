@@ -64,7 +64,7 @@ def _rocket_svg(
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VW} {VH}" '
-        f'width="100%" style="background:#0d1117;border-radius:6px;display:block">'
+        f'width="100%" style="background:var(--wb-bg);border-radius:6px;display:block">'
     ]
 
     # Centerline
@@ -292,8 +292,8 @@ def barrowman_page():
                 except Exception:
                     sm_len_pct = None
 
-                with ui.card().classes('w-full q-pa-sm q-mb-xs').style(
-                    f'background:#1a2744; border-left:3px solid var(--q-{badge_col})'
+                with ui.card().classes('w-full q-pa-sm q-mb-xs wb-subpanel').style(
+                    f'border-left:3px solid var(--q-{badge_col})'
                 ):
                     with ui.row().classes('items-center q-gutter-md no-wrap'):
                         ui.label(f'{icon} Static Margin').classes(f'text-caption text-{color}')
@@ -369,7 +369,7 @@ def barrowman_page():
         with fp:
             for i in range(count):
                 fi: dict = {}
-                with ui.card().classes('w-full q-mb-xs').style('background:#1a2744'):
+                with ui.card().classes('w-full q-mb-xs wb-subpanel'):
                     ui.label(f'Fin Set {i + 1}').classes('text-subtitle2 q-mb-xs')
                     with ui.grid(columns=4).classes('w-full'):
                         fi['n']         = ui.number('N fins',              value=4,   min=3, max=16, step=1,
@@ -453,7 +453,7 @@ def barrowman_page():
                 _el['result_panel'] = ui.column().classes('w-full')
 
             # Reference card
-            with ui.card().classes('w-full').style('background:#1a2744'):
+            with ui.card().classes('w-full wb-subpanel'):
                 ui.label('Barrowman Method Notes').classes('text-caption text-grey q-mb-xs')
                 notes = [
                     'CNα = 2 for all subsonic nose shapes',

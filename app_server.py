@@ -18,7 +18,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import RedirectResponse
 
 from service.serve import validate_bind_host
-from web.service_ui import auth
+from web.service_ui import auth, theme
 import web.service_ui.pages        # noqa: F401 — registers @ui.page('/jobs') + @ui.page('/jobs/{id}')
 import web.service_ui.projects_ui   # noqa: F401 — registers @ui.page('/projects') + edit
 import web.service_ui.results_api    # noqa: F401 — registers browser-facing /api/results/... routes
@@ -73,12 +73,17 @@ def login_page():
         else:
             ui.notify("Wrong password", color="negative")
 
-    with ui.card().classes("absolute-center"):
-        ui.label("ForRocket Workbench").classes("text-h6")
-        ui.label("Sign in").classes("text-caption text-grey q-mb-sm")
-        pw = ui.input("Password", password=True, password_toggle_button=True) \
-            .on("keydown.enter", _try)
-        ui.button("Sign in", on_click=_try)
+    # No service_header here, so the theme has to be applied directly (layout module docstring).
+    theme.apply_theme()
+    with ui.card().classes("absolute-center q-pa-lg").style("min-width:320px"):
+        with ui.column().classes("q-gutter-sm w-full"):
+            ui.label("ForRocket Workbench").classes("text-h6 text-weight-bold")
+            ui.label("Sign in to continue").classes("text-caption text-grey q-mb-xs")
+            pw = ui.input("Password", password=True, password_toggle_button=True) \
+                .props("outlined dense autofocus").classes("w-full") \
+                .on("keydown.enter", _try)
+            ui.button("Sign in", on_click=_try).props("color=primary unelevated") \
+                .classes("w-full q-mt-xs")
 
 
 def _mount_viewer_and_extensions() -> None:

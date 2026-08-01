@@ -973,7 +973,7 @@ def _build_sensitivity_form(data: dict, container, rocket: Optional[dict] = None
 
                     row['effects'] = []
                     if coupled:
-                        with ui.card().classes('w-full q-pa-xs bg-grey-1'):
+                        with ui.card().classes('w-full q-pa-xs wb-subpanel'):
                             ui.label('Effects — these parameters move together each variation '
                                      '(new = base ± variation × Scale)').classes('text-caption text-grey')
                             for j, eff in enumerate(p.get('Effects') or []):

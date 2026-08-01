@@ -633,8 +633,9 @@ def project_edit_page(name: str):
                                   icon=('tune' if config_forms.has_form(f) else 'description'),
                                   on_click=lambda f=f: _select(f)) \
                             .props('flat no-caps align=left ' +
-                                   ('color=primary' if active else 'color=grey-8')) \
-                            .classes('w-full justify-start' + (' bg-blue-1' if active else ''))
+                                   ('color=primary' if active else '')) \
+                            .classes('w-full justify-start wb-side-item' +
+                                     (' wb-selected' if active else ''))
 
                 nav()
                 ui.separator().classes('q-my-sm')

@@ -1008,7 +1008,7 @@ def _build_mc_card(df_mc: pd.DataFrame, label: str):
                     if not len(arr):
                         continue
                     mean, std = float(arr.mean()), float(arr.std())
-                    with ui.card().classes('q-pa-sm').style('background:#1a2744'):
+                    with ui.card().classes('q-pa-sm wb-subpanel'):
                         ui.label(f'{disp} [{disp_unit}]').classes('text-caption text-grey')
                         ui.label(_fmtv(mean)).classes('text-weight-bold').style(f'color:{clr}')
                         ui.label(f'σ = {_fmtv(std)}').classes('text-caption text-grey')
