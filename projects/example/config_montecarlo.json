@@ -87,9 +87,9 @@
         },
         "XCP": {
             "Enable": false,
-            "Error Unit": "%",
-            "Error 3sigma Low": 5.0,
-            "Error 3sigma High": 5.0
+            "Error Unit": "m",
+            "Error 3sigma Low": 0.02,
+            "Error 3sigma High": 0.02
         },
         "Clp": {
             "Enable": false,

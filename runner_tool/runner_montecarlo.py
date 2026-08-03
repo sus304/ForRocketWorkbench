@@ -1,7 +1,9 @@
 import os
 import json
 import shutil
+import warnings
 from copy import deepcopy
+from typing import Any, NamedTuple, Optional
 import numpy as np
 from scipy.stats import truncnorm
 from concurrent import futures
@@ -38,6 +40,12 @@ from runner_tool.json_api import get_constant_Cld, set_constant_Cld
 from runner_tool.json_api import get_constant_Clp, set_constant_Clp
 from runner_tool.json_api import get_constant_Cmq, set_constant_Cmq
 from runner_tool.json_api import get_constant_Cnr, set_constant_Cnr
+from runner_tool.json_api import xcp_file_is_enable, get_xcp_file_name, set_xcp_file_name
+from runner_tool.json_api import CNa_file_is_enable, get_CNa_file_name, set_CNa_file_name
+from runner_tool.json_api import Cld_file_is_enable, get_Cld_file_name, set_Cld_file_name
+from runner_tool.json_api import Clp_file_is_enable, get_Clp_file_name, set_Clp_file_name
+from runner_tool.json_api import Cmq_file_is_enable, get_Cmq_file_name, set_Cmq_file_name
+from runner_tool.json_api import Cnr_file_is_enable, get_Cnr_file_name, set_Cnr_file_name
 from runner_tool.json_api import get_cant_angle, set_cant_angle
 from runner_tool.json_api import get_engine_miss_alignment_y, set_engine_miss_alignment_y
 from runner_tool.json_api import get_engine_miss_alignment_z, set_engine_miss_alignment_z
@@ -84,56 +92,106 @@ def _sample_errors(mean, std_low, std_high, size):
     return samples
 
 
-def _sample_from_config(ep, mean, size):
+# Length units an absolute ("Error Unit" != "%") magnitude may be written in, in metres.
+# A config field's unit and the error's unit are two different things: the scalar X-C.P. and
+# X-C.G. fields hold millimetres (the solver divides them by 1e3) while the corresponding table
+# files hold metres (used as-is). Writing a magnitude given in "m" straight into a millimetre
+# field is what this table exists to prevent — it shrank the dispersion by 1000x in silence.
+_LENGTH_UNITS_IN_M = {'m': 1.0, 'cm': 1e-2, 'mm': 1e-3}
+
+
+def _unit_scale(error_unit, target_unit, param_name=''):
+    """Factor converting an absolute error magnitude from error_unit into target_unit.
+
+    target_unit None means the write target carries no length unit to convert against (angles,
+    times, masses, dimensionless coefficients), so the magnitude is used as given. An
+    unrecognised error unit also passes through unscaled: "Error Unit" has always been
+    free-form documentation, so rejecting it would break configs that predate this conversion —
+    but it warns, because on a length target an unknown unit and a typo look the same.
+    """
+    if target_unit is None:
+        return 1.0
+    src = _LENGTH_UNITS_IN_M.get(str(error_unit).strip().lower())
+    if src is None:
+        warnings.warn(
+            f'{param_name or "parameter"}: Error Unit "{error_unit}" is not a known length unit '
+            f'({", ".join(_LENGTH_UNITS_IN_M)}); the magnitude is taken to be in "{target_unit}" '
+            f'as stored. Set Error Unit to a length unit to state the intent.')
+        return 1.0
+    return src / _LENGTH_UNITS_IN_M[target_unit]
+
+
+def _sample_from_config(ep, mean, size, target_unit=None, param_name=''):
     """
     Sample errors using the error parameter config dict.
-      "Error Unit": "%"  → std = |mean| * value/100/3   (percentage of nominal)
-      "Error Unit": <str> → std = value/3                (absolute, unit is documentation only)
+      "Error Unit": "%"       → std = |mean| * value/100/3  (percentage of nominal)
+      "Error Unit": <length>  → std = value/3, converted into target_unit (see _unit_scale)
+      "Error Unit": <other>   → std = value/3               (absolute, in the target's own unit)
+    target_unit is the unit of `mean` and of the returned samples, i.e. the unit of whatever
+    field or table column the caller is about to write them into.
     """
     unit = ep.get('Error Unit', '%')
     if unit == '%':
         std_low  = abs(mean) * ep['Error 3sigma Low']  / 100.0 / 3
         std_high = abs(mean) * ep['Error 3sigma High'] / 100.0 / 3
     else:
-        std_low  = ep['Error 3sigma Low']  / 3
-        std_high = ep['Error 3sigma High'] / 3
+        k = _unit_scale(unit, target_unit, param_name)
+        std_low  = ep['Error 3sigma Low']  * k / 3
+        std_high = ep['Error 3sigma High'] * k / 3
     return _sample_errors(mean, std_low, std_high, size)
 
 
-# Registry for scalar error parameters.
-# Each entry: (config_key, getter, setter)
-#   config_key: 'rocket_param' | 'engine_param' | 'soe' | 'solver_config'
-# Error unit and magnitude come from the montecarlo config at runtime.
-# Note: file-based variants (Enable *File = true) are not supported via this registry; for
-# constant mode the registry samples directly, while POI also has a dedicated file-mode
-# block below (see _POI_COMPONENTS). Other params remain constant-mode only.
+class ScalarParam(NamedTuple):
+    """One dispersible scalar config field.
+
+    cfg_key ('rocket_param' | 'engine_param' | 'soe' | 'solver_config') plus getter/setter
+    locate the field; the error unit and magnitude come from the montecarlo config at runtime.
+
+    field_unit is the unit the field itself stores, so an absolute magnitude given in another
+    unit converts into it (None: nothing to convert — see _unit_scale).
+
+    file_check, when set, reports whether the solver ignores this field entirely because the
+    matching "Enable * File" is on: rocket_factory.cpp is an if/else, so in file mode the scalar
+    field is dead and a dispersion written to it disappears without a trace. Every parameter
+    that has one is dispersed through its file by a dedicated block below; _validate_error_params
+    refuses to run any that is not, so a parameter added here later fails loudly instead.
+    """
+    cfg_key: str
+    getter: Any
+    setter: Any
+    field_unit: Optional[str] = None
+    file_check: Optional[Any] = None
+
+
+_P = ScalarParam  # keeps the table below readable at one entry per line
+
 _SCALAR_PARAM_REGISTRY = {
-    'Launcher Azimuth':         ('solver_config', get_azimuth,                         set_azimuth                        ),
-    'Launcher Elevation':       ('solver_config', get_elevation,                       set_elevation                      ),
-    'Propellant Mass':          ('rocket_param',  get_mass_prop,                       set_mass_prop                      ),
-    'Mass Inert':               ('rocket_param',  get_mass_inert,                      set_mass_inert                     ),
-    'CNa':                      ('rocket_param',  get_constant_CNa,                    set_constant_CNa                   ),
-    'XCP':                      ('rocket_param',  get_constant_xcp,                    set_constant_xcp                   ),
-    'Cld':                      ('rocket_param',  get_constant_Cld,                    set_constant_Cld                   ),
-    'Clp':                      ('rocket_param',  get_constant_Clp,                    set_constant_Clp                   ),
-    'Cmq':                      ('rocket_param',  get_constant_Cmq,                    set_constant_Cmq                   ),
-    'Cnr':                      ('rocket_param',  get_constant_Cnr,                    set_constant_Cnr                   ),
-    'Fin Cant Angle':           ('rocket_param',  get_cant_angle,                      set_cant_angle                     ),
-    'Engine Miss-Alignment Y':  ('engine_param',  get_engine_miss_alignment_y,         set_engine_miss_alignment_y        ),
-    'Engine Miss-Alignment Z':  ('engine_param',  get_engine_miss_alignment_z,         set_engine_miss_alignment_z        ),
-    'Gas Jet Moment':           ('rocket_param',  get_gas_jet_moment,                  set_gas_jet_moment                 ),
-    'Gas Jet Duration':         ('rocket_param',  get_gas_jet_duration,                set_gas_jet_duration               ),
-    'CG Offset Y':              ('rocket_param',  get_cg_offset_y,                     set_cg_offset_y                    ),
-    'CG Offset Z':              ('rocket_param',  get_cg_offset_z,                     set_cg_offset_z                    ),
-    'Thrust Point Offset Y':    ('rocket_param',  get_thrust_point_offset_y,           set_thrust_point_offset_y          ),
-    'Thrust Point Offset Z':    ('rocket_param',  get_thrust_point_offset_z,           set_thrust_point_offset_z          ),
-    'POI Ixy':                  ('rocket_param',  get_constant_poi_ixy,                set_constant_poi_ixy               ),
-    'POI Ixz':                  ('rocket_param',  get_constant_poi_ixz,                set_constant_poi_ixz               ),
-    'POI Iyz':                  ('rocket_param',  get_constant_poi_iyz,                set_constant_poi_iyz               ),
-    'Primary Parachute Drag':        ('soe', get_parachute_drag_factor,           set_parachute_drag_factor          ),
-    'Primary Parachute Open Time':   ('soe', get_parachute_open_time,             set_parachute_open_time            ),
-    'Secondary Parachute Drag':      ('soe', get_secondary_parachute_drag_factor, set_secondary_parachute_drag_factor),
-    'Secondary Parachute Open Time': ('soe', get_secondary_parachute_open_time,   set_secondary_parachute_open_time  ),
+    'Launcher Azimuth':         _P('solver_config', get_azimuth,                 set_azimuth                ),
+    'Launcher Elevation':       _P('solver_config', get_elevation,               set_elevation              ),
+    'Propellant Mass':          _P('rocket_param',  get_mass_prop,               set_mass_prop              ),
+    'Mass Inert':               _P('rocket_param',  get_mass_inert,              set_mass_inert             ),
+    'CNa':                      _P('rocket_param',  get_constant_CNa,            set_constant_CNa,           file_check=CNa_file_is_enable),
+    'XCP':                      _P('rocket_param',  get_constant_xcp,            set_constant_xcp,     'mm', file_check=xcp_file_is_enable),
+    'Cld':                      _P('rocket_param',  get_constant_Cld,            set_constant_Cld,           file_check=Cld_file_is_enable),
+    'Clp':                      _P('rocket_param',  get_constant_Clp,            set_constant_Clp,           file_check=Clp_file_is_enable),
+    'Cmq':                      _P('rocket_param',  get_constant_Cmq,            set_constant_Cmq,           file_check=Cmq_file_is_enable),
+    'Cnr':                      _P('rocket_param',  get_constant_Cnr,            set_constant_Cnr,           file_check=Cnr_file_is_enable),
+    'Fin Cant Angle':           _P('rocket_param',  get_cant_angle,              set_cant_angle             ),
+    'Engine Miss-Alignment Y':  _P('engine_param',  get_engine_miss_alignment_y, set_engine_miss_alignment_y),
+    'Engine Miss-Alignment Z':  _P('engine_param',  get_engine_miss_alignment_z, set_engine_miss_alignment_z),
+    'Gas Jet Moment':           _P('rocket_param',  get_gas_jet_moment,          set_gas_jet_moment         ),
+    'Gas Jet Duration':         _P('rocket_param',  get_gas_jet_duration,        set_gas_jet_duration       ),
+    'CG Offset Y':              _P('rocket_param',  get_cg_offset_y,             set_cg_offset_y,       'mm'),
+    'CG Offset Z':              _P('rocket_param',  get_cg_offset_z,             set_cg_offset_z,       'mm'),
+    'Thrust Point Offset Y':    _P('rocket_param',  get_thrust_point_offset_y,   set_thrust_point_offset_y, 'mm'),
+    'Thrust Point Offset Z':    _P('rocket_param',  get_thrust_point_offset_z,   set_thrust_point_offset_z, 'mm'),
+    'POI Ixy':                  _P('rocket_param',  get_constant_poi_ixy,        set_constant_poi_ixy, file_check=poi_file_is_enable),
+    'POI Ixz':                  _P('rocket_param',  get_constant_poi_ixz,        set_constant_poi_ixz, file_check=poi_file_is_enable),
+    'POI Iyz':                  _P('rocket_param',  get_constant_poi_iyz,        set_constant_poi_iyz, file_check=poi_file_is_enable),
+    'Primary Parachute Drag':        _P('soe', get_parachute_drag_factor,           set_parachute_drag_factor          ),
+    'Primary Parachute Open Time':   _P('soe', get_parachute_open_time,             set_parachute_open_time            ),
+    'Secondary Parachute Drag':      _P('soe', get_secondary_parachute_drag_factor, set_secondary_parachute_drag_factor),
+    'Secondary Parachute Open Time': _P('soe', get_secondary_parachute_open_time,   set_secondary_parachute_open_time  ),
 }
 
 # POI (Product of Inertia) components for file mode. Each component has its own input file
@@ -146,6 +204,122 @@ _POI_COMPONENTS = (
     ('POI Iyz', get_poi_file_iyz, set_poi_file_iyz, 'Iyz'),
 )
 _POI_PARAM_NAMES = frozenset(c[0] for c in _POI_COMPONENTS)
+
+
+class AeroFileParam(NamedTuple):
+    """One aero table the solver interpolates against Mach when its "Enable * File" is on.
+
+    In that mode the scalar field is dead (see ScalarParam.file_check), so the dispersion has to
+    be applied to the table itself: write a per-case CSV and point the case config at it, the
+    same shape as the CA / X-C.G. / M.I. / POI blocks in run_montecarlo.
+
+    mode 'scale'  — the sampled multiplier scales every row; needs "Error Unit": "%".
+    mode 'offset' — the sampled value is added to every row; needs an absolute length unit.
+
+    X-C.P. is the only 'offset' entry, deliberately: its error is a physical distance, so
+    scaling the table would shift the CP by an amount proportional to its distance from the
+    tail and therefore differ Mach by Mach — not what a CP uncertainty of ±x m states. Its file
+    values are metres (the solver interpolates them as-is, unlike the millimetre scalar field),
+    hence file_unit 'm'.
+    """
+    name: str
+    file_check: Any
+    get_path: Any
+    set_path: Any
+    mode: str
+    file_unit: Optional[str]
+    header: str
+
+
+# Roll/pitch/yaw damping coefficients are of order 1e-2, so the 6 decimals the CA block writes
+# would leave them only four significant figures — enough quantisation to be visible when a
+# realised multiplier is recovered from the table. 9 decimals covers every coefficient here.
+_AERO_FMT = '%0.9f'
+
+_AERO_FILE_PARAMS = (
+    AeroFileParam('CNa', CNa_file_is_enable, get_CNa_file_name, set_CNa_file_name, 'scale',  None, 'mach,CNa'),
+    AeroFileParam('Cld', Cld_file_is_enable, get_Cld_file_name, set_Cld_file_name, 'scale',  None, 'mach,Cld'),
+    AeroFileParam('Clp', Clp_file_is_enable, get_Clp_file_name, set_Clp_file_name, 'scale',  None, 'mach,Clp'),
+    AeroFileParam('Cmq', Cmq_file_is_enable, get_Cmq_file_name, set_Cmq_file_name, 'scale',  None, 'mach,Cmq'),
+    AeroFileParam('Cnr', Cnr_file_is_enable, get_Cnr_file_name, set_Cnr_file_name, 'scale',  None, 'mach,Cnr'),
+    AeroFileParam('XCP', xcp_file_is_enable, get_xcp_file_name, set_xcp_file_name, 'offset', 'm',  'mach,Xcp'),
+)
+_AERO_FILE_BY_NAME = {s.name: s for s in _AERO_FILE_PARAMS}
+
+# How every file-mode dispersion applies, for validation only — the sampling itself lives in
+# run_montecarlo. Keyed by error-parameter name: (mode, config the file switch is read from,
+# file switch). 'scale' entries need "Error Unit": "%"; 'offset' entries need an absolute unit,
+# because their nominal is zero (they perturb a whole table, so there is no single nominal
+# value) and a percentage of zero is a dispersion of exactly zero — a full run that completes
+# with the parameter held fixed, the same class of failure as writing a field the solver ignores.
+_FILE_MODE_DISPERSION = {
+    'CA':      ('scale',  'rocket_param', CA_file_is_enable),
+    'MOI':     ('scale',  'rocket_param', moi_file_is_enable),
+    'XCG':     ('offset', 'rocket_param', xcg_file_is_enable),
+    'Thrust':  ('scale',  'engine_param', thrust_file_is_enable),
+    'POI Ixy': ('scale',  'rocket_param', poi_file_is_enable),
+    'POI Ixz': ('scale',  'rocket_param', poi_file_is_enable),
+    'POI Iyz': ('scale',  'rocket_param', poi_file_is_enable),
+}
+# Derived, not hand-listed, so the aero table above stays the single source of truth.
+_FILE_MODE_DISPERSION.update(
+    {s.name: (s.mode, 'rocket_param', s.file_check) for s in _AERO_FILE_PARAMS})
+_FILE_MODE_HANDLED = frozenset(_FILE_MODE_DISPERSION)
+
+
+def _validate_error_params(error_params, rocket_param, engine_param):
+    """Reject a montecarlo config whose dispersion the run would silently discard.
+
+    Both failure modes below used to complete a full run and produce results in which the
+    parameter simply did not vary — the worst kind of bug, since nothing distinguishes the
+    output from a correct run:
+
+      - the parameter's "Enable * File" is on, so the solver reads a table and never looks at
+        the scalar field the sampler writes. Everything with a file mode is dispersed through
+        its file now, so this only fires for a parameter added to _SCALAR_PARAM_REGISTRY later,
+        which is the point: new entries are guarded by default.
+      - the "Error Unit" does not fit how the dispersion applies to a table (see
+        _FILE_MODE_DISPERSION): "%" on an 'offset' target yields identically zero dispersion,
+        and an absolute magnitude on a 'scale' target is a meaningless multiplier.
+
+    Collects every problem before raising, so one run reports the whole config rather than
+    making the user fix offenders one at a time.
+    """
+    cfgs = {'rocket_param': rocket_param, 'engine_param': engine_param}
+    problems = []
+
+    for name, (mode, cfg_key, file_check) in sorted(_FILE_MODE_DISPERSION.items()):
+        ep = error_params.get(name)
+        if not (ep and ep.get('Enable', False) and file_check(cfgs[cfg_key])):
+            continue
+        unit = ep.get('Error Unit', '%')
+        if mode == 'scale' and unit != '%':
+            problems.append(
+                f'"{name}" is in file mode, where its error scales the whole table, so '
+                f'"Error Unit" must be "%" (got "{unit}").')
+        elif mode == 'offset' and unit == '%':
+            problems.append(
+                f'"{name}" is in file mode, where its error is added to the whole table as an '
+                f'absolute offset; "Error Unit": "%" would be a percentage of a zero nominal, '
+                f'i.e. no dispersion at all. Give an absolute unit '
+                f'({", ".join(_LENGTH_UNITS_IN_M)}).')
+
+    for name, p in sorted(_SCALAR_PARAM_REGISTRY.items()):
+        if p.file_check is None or name in _FILE_MODE_HANDLED:
+            continue
+        ep = error_params.get(name)
+        if ep and ep.get('Enable', False) and p.file_check(rocket_param):
+            problems.append(
+                f'"{name}" has an error configured but its file mode is enabled, and the '
+                f'montecarlo runner cannot disperse it in file mode — the solver would read the '
+                f'table and ignore the sampled value, giving a run with no dispersion in '
+                f'"{name}". Disable the file mode to use the constant field, or add file-mode '
+                f'support for "{name}".')
+
+    if problems:
+        raise ValueError(
+            'montecarlo error parameters would have no effect as configured:\n  - '
+            + '\n  - '.join(problems))
 
 
 class MontecarloCaseConfig:
@@ -172,6 +346,9 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
         montecarlo_config = json.load(f)
     case_count = montecarlo_config.get('MonteCarlo Case Count')
     error_params = montecarlo_config.get('Error Parameters')
+
+    # Before anything is written: refuse a config whose dispersion the run would throw away.
+    _validate_error_params(error_params or {}, rocket_param, engine_param)
 
     # 計算ディレクトリを作成
     calc_dir = 'cases'
@@ -260,11 +437,15 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
             xcg_load = np.loadtxt(get_xcg_file_name(rocket_param), delimiter=',', skiprows=1)
             xcg_time_array = xcg_load[:, 0]
             xcg_base_array = xcg_load[:, 1]
-            xcg_samples = _sample_from_config(ep_xcg, 0.0, case_count)  # offset from nominal
+            # File values are metres; the offset is added to them directly.
+            xcg_samples = _sample_from_config(ep_xcg, 0.0, case_count,
+                                             target_unit='m', param_name='XCG')
             xcg_samples[0] = 0.0
         else:
+            # The constant field is millimetres, so an "m" magnitude has to be converted.
             mean = get_constant_xcg(rocket_param)
-            xcg_samples = _sample_from_config(ep_xcg, mean, case_count)
+            xcg_samples = _sample_from_config(ep_xcg, mean, case_count,
+                                             target_unit='mm', param_name='XCG')
             xcg_samples[0] = mean
 
     # ---- MOI --------------------------------------------------------
@@ -302,6 +483,22 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
             poi_mult[0] = 1.0
             poi_jobs[_name] = (poi_mult, poi_load[:, 0], poi_load[:, 1], _file_setter, _comp)
 
+    # ---- Aero tables in file mode (CNa/Cld/Clp/Cmq/Cnr, X-C.P.) -----
+    # Mach-dependent tables the solver reads instead of the scalar field, so the dispersion has
+    # to go into the table (see AeroFileParam). aero_jobs maps the error-parameter name to
+    # (spec, per-case sample array, mach axis, base value array).
+    aero_jobs = {}
+    for _spec in _AERO_FILE_PARAMS:
+        _ep_aero = error_params.get(_spec.name)
+        if not (_ep_aero and _ep_aero.get('Enable', False) and _spec.file_check(rocket_param)):
+            continue
+        _aero_load = np.loadtxt(_spec.get_path(rocket_param), delimiter=',', skiprows=1)
+        _nominal = 1.0 if _spec.mode == 'scale' else 0.0
+        _aero_samples = _sample_from_config(_ep_aero, _nominal, case_count,
+                                            target_unit=_spec.file_unit, param_name=_spec.name)
+        _aero_samples[0] = _nominal
+        aero_jobs[_spec.name] = (_spec, _aero_samples, _aero_load[:, 0], _aero_load[:, 1])
+
     # ---- Generic scalar parameters ----------------------------------
     scalar_samples = {}
     _base_configs = {
@@ -310,16 +507,19 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
         'soe': soe,
         'solver_config': solver_config,
     }
-    for name, (cfg_key, getter, setter) in _SCALAR_PARAM_REGISTRY.items():
-        if name in _POI_PARAM_NAMES and poi_file_mode:
-            continue  # POI in file mode is handled by the dedicated poi_jobs block
+    for name, p in _SCALAR_PARAM_REGISTRY.items():
+        if p.file_check is not None and p.file_check(rocket_param):
+            # The solver ignores this field in file mode; a dedicated block above disperses the
+            # file instead (_validate_error_params already rejected anything that has neither).
+            continue
         ep = error_params.get(name)
         if ep is None or not ep.get('Enable', False):
             continue
-        mean = getter(_base_configs[cfg_key])
-        samples = _sample_from_config(ep, mean, case_count)
+        mean = p.getter(_base_configs[p.cfg_key])
+        samples = _sample_from_config(ep, mean, case_count,
+                                      target_unit=p.field_unit, param_name=name)
         samples[0] = mean
-        scalar_samples[name] = (samples, cfg_key, setter)
+        scalar_samples[name] = (samples, p.cfg_key, p.setter)
 
     montecarlo_case_list = [None] * case_count
 
@@ -387,6 +587,26 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
                                                         get_constant_moi_pitch(rocket_param) * mult)
             rocket_param_case = set_constant_moi_roll(rocket_param_case,
                                                        get_constant_moi_roll(rocket_param) * mult)
+
+        # Aero tables in file mode: write this case's table and point the case config at it.
+        for _spec, _aero_samples, _mach_arr, _base_arr in aero_jobs.values():
+            if _spec.mode == 'scale':
+                _vals = _base_arr * _aero_samples[case_num]
+            else:
+                _vals = _base_arr + _aero_samples[case_num]
+            _aero_file_name = str(case_num) + '_' + _spec.name + '.csv'
+            np.savetxt(work_dir+'/'+calc_dir+'/'+_aero_file_name,
+                       np.c_[_mach_arr, _vals],
+                       delimiter=',', fmt=_AERO_FMT, header=_spec.header, comments='')
+            _spec.set_path(rocket_param_case, _aero_file_name)
+
+        # Aero tables in file mode without an enabled error: reference the copy that
+        # copy_config_files() staged in cases/ by basename, so a config written with an absolute
+        # path still yields a self-contained case (same treatment as the CA block above).
+        for _spec in _AERO_FILE_PARAMS:
+            if _spec.name in aero_jobs or not _spec.file_check(rocket_param):
+                continue
+            _spec.set_path(rocket_param_case, os.path.basename(_spec.get_path(rocket_param)))
 
         # POI (Product of Inertia), file mode: write a per-case scaled file for each
         # component whose error is enabled. Components without an enabled error keep the

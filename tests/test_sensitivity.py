@@ -466,7 +466,9 @@ def test_sensitivity_aero_files_are_self_contained(monkeypatch, tmp_path, projec
     rp["Enable CNa File"] = True
     rp["CNa File"]["CNa File Path"] = "cna.csv"
     rp_path.write_text(json.dumps(rp))
-    (proj / "xcp.csv").write_text("mach,xcp\n0,1000\n2,1100\n")
+    # X-C.P. table values are metres: the solver interpolates them as-is, and only the
+    # "Constant X-C.P. from BodyTail [mm]" field is divided by 1e3 (rocket_factory.cpp).
+    (proj / "xcp.csv").write_text("mach,xcp\n0,1.0\n2,1.1\n")
     (proj / "cna.csv").write_text("mach,cna\n0,10\n2,12\n")
 
     sens_cfg = {
@@ -499,6 +501,108 @@ def test_sensitivity_aero_files_are_self_contained(monkeypatch, tmp_path, projec
         assert not Path(cna).is_absolute(), f"{rp_file.name}: {cna}"
         assert (cases_dir / xcp).exists(), f"{rp_file.name}: {xcp} not in cases/"
         assert (cases_dir / cna).exists(), f"{rp_file.name}: {cna} not in cases/"
+
+
+def test_get_nominal_aero_file_mode_rejects_the_wrong_unit_kind():
+    """File-mode aero tables are varied as a whole, so the unit says which operation applies:
+    a multiplier for the coefficient tables, an absolute offset for X-C.P.
+
+    Both wrong combinations used to be accepted and produce a run with no variation at all —
+    the coefficient case because the variation went into the constant field the solver ignores,
+    and X-C.P. with '%' because a percentage of its zero nominal is zero.
+    """
+    rp_cna = {"Enable CNa File": True}
+    with pytest.raises(ValueError, match='only supports Variation Unit "%"'):
+        _get_nominal("CNa", {}, rp_cna, {}, "m")
+    assert _get_nominal("CNa", {}, rp_cna, {}, "%") == pytest.approx(1.0)
+
+    rp_xcp = {"Enable X-C.P. File": True}
+    with pytest.raises(ValueError, match="absolute offset"):
+        _get_nominal("XCP", {}, rp_xcp, {}, "%")
+    assert _get_nominal("XCP", {}, rp_xcp, {}, "m") == pytest.approx(0.0)
+
+
+def test_compute_absolute_converts_into_the_target_unit():
+    """An absolute variation is stated in Variation Unit but written into a field with its own
+    unit. The constant X-C.P./X-C.G. fields are millimetres, so 0.02 m must land as 20 mm."""
+    from runner_tool.runner_sensitivity import _target_unit
+
+    assert _compute_param_value(1500.0, 0.02, "m", target_unit="mm") == pytest.approx(1520.0)
+    assert _compute_param_value(1500.0, 20.0, "mm", target_unit="mm") == pytest.approx(1520.0)
+    # The X-C.P. table is metres, so the same 0.02 m offset stays 0.02 there.
+    assert _compute_param_value(0.0, 0.02, "m", target_unit="m") == pytest.approx(0.02)
+    # Which target applies is decided by whether the solver reads the file or the field.
+    assert _target_unit("XCP", {"Enable X-C.P. File": True}) == "m"
+    assert _target_unit("XCP", {"Enable X-C.P. File": False}) == "mm"
+    assert _target_unit("Mass Inert", {}) is None
+
+
+def test_sensitivity_aero_file_mode_writes_per_case_tables(monkeypatch, tmp_path, projects_dir):
+    """Varying a file-mode aero coefficient must rewrite the table, not the ignored field.
+
+    CNa is scaled by (1 + variation/100); X-C.P. is shifted by an absolute offset that is the
+    same at every Mach (scaling it would move the CP by a Mach-dependent amount). Before this,
+    both variations were written to the constant field the solver skips in file mode, so every
+    case flew identical aerodynamics and the sensitivity came out as zero.
+    """
+    import numpy as np
+    from path_define import chdir
+
+    proj = copy_example(projects_dir, tmp_path / "example")
+
+    mach = np.array([0.0, 1.0, 2.0])
+    cna_base = np.array([8.0, 12.0, 10.0])
+    xcp_base = np.array([1.00, 1.26, 1.18])   # metres from body tail
+    np.savetxt(proj / "cna.csv", np.c_[mach, cna_base], delimiter=",",
+               header="mach,CNa", comments="")
+    np.savetxt(proj / "xcp.csv", np.c_[mach, xcp_base], delimiter=",",
+               header="mach,Xcp", comments="")
+
+    rp_path = proj / "param_rocket.json"
+    rp = json.loads(rp_path.read_text())
+    rp["Enable CNa File"] = True
+    rp["CNa File"]["CNa File Path"] = "cna.csv"
+    rp["Enable X-C.P. File"] = True
+    rp["X-C.P. File"]["X-C.P. File Path"] = "xcp.csv"
+    rp_path.write_text(json.dumps(rp))
+
+    sens_cfg = {
+        "Sensitivity Parameters": [
+            {"Name": "CNa", "Variation Unit": "%", "Variations": [-10.0, 10.0]},
+            {"Name": "XCP", "Variation Unit": "m", "Variations": [-0.02, 0.02]},
+        ],
+        "Sensitivity Calculation": {"Method": "two_point"},
+    }
+    (proj / "config_sensitivity.json").write_text(json.dumps(sens_cfg))
+
+    monkeypatch.setattr("runner_tool.runner_single.run_solver", lambda *a, **k: None)
+    with chdir(str(proj)):
+        work_dir = run_sensitivity("config_solver.json", "config_sensitivity.json")
+    cases_dir = proj / Path(work_dir).name / "cases"
+
+    assert_cases_self_contained(cases_dir)
+
+    # cases 1,2 = CNa -10%/+10%; cases 3,4 = XCP -0.02/+0.02 m
+    for cn, mult in {1: 0.9, 2: 1.1}.items():
+        table = np.loadtxt(cases_dir / f"{cn}_CNa.csv", delimiter=",", skiprows=1)
+        assert np.allclose(table[:, 0], mach)
+        assert np.allclose(table[:, 1], cna_base * mult)
+        rp_case = json.loads((cases_dir / f"{cn}_rocket_param.json").read_text())
+        assert rp_case["CNa File"]["CNa File Path"] == f"{cn}_CNa.csv"
+
+    for cn, offset in {3: -0.02, 4: 0.02}.items():
+        table = np.loadtxt(cases_dir / f"{cn}_XCP.csv", delimiter=",", skiprows=1)
+        assert np.allclose(table[:, 0], mach)
+        assert np.allclose(table[:, 1], xcp_base + offset), "XCP must be offset, not scaled"
+        rp_case = json.loads((cases_dir / f"{cn}_rocket_param.json").read_text())
+        assert rp_case["X-C.P. File"]["X-C.P. File Path"] == f"{cn}_XCP.csv"
+
+    # The nominal case and the cases varying the *other* parameter keep the shared base table.
+    for cn in (0, 3, 4):
+        rp_case = json.loads((cases_dir / f"{cn}_rocket_param.json").read_text())
+        assert rp_case["CNa File"]["CNa File Path"] == "cna.csv"
+    assert not (cases_dir / "0_CNa.csv").exists()
+    assert not (cases_dir / "0_XCP.csv").exists()
 
 
 # ──────────────────────────────────────────────────────────────────────────────

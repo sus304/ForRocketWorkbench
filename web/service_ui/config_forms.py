@@ -35,7 +35,10 @@ _MC_ERROR_PARAMS_DEF = [
     ('Secondary Parachute Open Time', 's',   False),
     ('Mass Inert',                    '%',   False),
     ('CNa',                           '%',   False),
-    ('XCP',                           '%',   False),
+    # XCP is a distance in both modes: absolute by default so it reads the same whether the
+    # solver takes the mm constant field or the metre table (file mode requires a length unit —
+    # a percentage of the table's zero-centred nominal would be no dispersion at all).
+    ('XCP',                           'm',   False),
     ('Clp',                           '%',   False),
     ('Cmq',                           '%',   False),
     ('Cnr',                           '%',   False),
@@ -65,7 +68,7 @@ _SENS_PARAM_DEFS = [
     ('Propellant Mass',               '%'),
     ('Mass Inert',                    '%'),
     ('CNa',                           '%'),
-    ('XCP',                           '%'),
+    ('XCP',                           'm'),   # absolute distance; see _MC_ERROR_PARAMS_DEF
     ('Cld',                           '%'),
     ('Clp',                           '%'),
     ('Cmq',                           '%'),

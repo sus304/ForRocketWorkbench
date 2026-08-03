@@ -17,7 +17,10 @@ from runner_tool.json_api import (
     get_constant_thrust, set_constant_thrust,
     poi_file_is_enable,
 )
-from runner_tool.runner_montecarlo import _SCALAR_PARAM_REGISTRY, _POI_COMPONENTS, _POI_PARAM_NAMES
+from runner_tool.runner_montecarlo import (
+    _SCALAR_PARAM_REGISTRY, _POI_COMPONENTS, _POI_PARAM_NAMES,
+    _AERO_FILE_BY_NAME, _AERO_FMT, _LENGTH_UNITS_IN_M, _unit_scale,
+)
 from runner_tool.runner_multi import run_multi
 from path_define import runner_sensitivity_directory, make_unique_work_dir
 
@@ -31,15 +34,32 @@ _POI_META = {name: (fget, fset, label) for name, fget, fset, label in _POI_COMPO
 _AVAILABLE_PARAMS = sorted(_SCALAR_PARAM_REGISTRY.keys()) + ['Thrust', 'CA']
 
 
-def _compute_param_value(nominal, variation, unit, scale=1.0):
+def _compute_param_value(nominal, variation, unit, scale=1.0, target_unit=None):
     """
     unit='%'  -> new = nominal * (1 + variation * scale / 100)
-    unit=other -> new = nominal + variation * scale
+    unit=other -> new = nominal + variation * scale, converted into target_unit
     scale=1.0 (default) reproduces the original OAT behaviour.
+
+    target_unit is the unit of the field or table column the value is written to; an absolute
+    variation given in another length unit is converted into it (see _target_unit).
     """
     if unit == '%':
         return nominal * (1.0 + variation * scale / 100.0)
-    return nominal + variation * scale
+    return nominal + variation * scale * _unit_scale(unit, target_unit)
+
+
+def _target_unit(pname, rocket_param):
+    """The unit the value written for pname is stored in (None: no conversion applies).
+
+    Same distinction montecarlo makes: the scalar X-C.P. field holds millimetres while the
+    X-C.P. table holds metres, so which of the two a variation lands in decides how an absolute
+    "Variation Unit" magnitude must be converted.
+    """
+    spec = _AERO_FILE_BY_NAME.get(pname)
+    if spec is not None and spec.file_check(rocket_param):
+        return spec.file_unit
+    p = _SCALAR_PARAM_REGISTRY.get(pname)
+    return p.field_unit if p is not None else None
 
 
 def _get_nominal(pname, base_cfg, rocket_param, engine_param, unit):
@@ -50,9 +70,24 @@ def _get_nominal(pname, base_cfg, rocket_param, engine_param, unit):
                 f'{pname} in file mode only supports Variation Unit "%", got "{unit}". '
                 'Use "%" to apply a scaling multiplier to the POI file.')
         return 1.0  # nominal multiplier; new_val is the scale factor
+    _spec = _AERO_FILE_BY_NAME.get(pname)
+    if _spec is not None and _spec.file_check(rocket_param):
+        # File mode: the solver ignores the constant field entirely, so the variation applies to
+        # the table (scaled or offset per AeroFileParam) and the nominal is the identity value.
+        if _spec.mode == 'scale' and unit != '%':
+            raise ValueError(
+                f'{pname} in file mode only supports Variation Unit "%", got "{unit}". '
+                f'Use "%" to apply a scaling multiplier to the entire {pname} table.')
+        if _spec.mode == 'offset' and unit == '%':
+            raise ValueError(
+                f'{pname} in file mode is varied as an absolute offset added to the whole table, '
+                f'so Variation Unit "%" does not apply (a percentage of a zero nominal is no '
+                f'variation at all). Use an absolute length unit '
+                f'({", ".join(_LENGTH_UNITS_IN_M)}).')
+        return 1.0 if _spec.mode == 'scale' else 0.0
     if pname in _SCALAR_PARAM_REGISTRY:
-        cfg_key, getter, _ = _SCALAR_PARAM_REGISTRY[pname]
-        return getter(base_cfg[cfg_key])
+        p = _SCALAR_PARAM_REGISTRY[pname]
+        return p.getter(base_cfg[p.cfg_key])
     if pname == 'Thrust':
         if thrust_file_is_enable(engine_param) and unit != '%':
             raise ValueError(
@@ -113,8 +148,9 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
         if effects_config is None:
             # Simple OAT: Name is the parameter itself
             nominal = _get_nominal(display_name, base_cfg, rocket_param, engine_param, unit)
+            tunit = _target_unit(display_name, rocket_param)
             for var in variations:
-                new_val = _compute_param_value(nominal, var, unit)
+                new_val = _compute_param_value(nominal, var, unit, target_unit=tunit)
                 case_defs.append((
                     case_num, display_name, var, unit,
                     nominal, new_val, '',
@@ -123,18 +159,18 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
                 case_num += 1
         else:
             # Coupled: Effects list defines which parameters change and by how much
-            effect_specs = []  # [(pname, scale, nominal)]
+            effect_specs = []  # [(pname, scale, nominal, target_unit)]
             for eff in effects_config:
                 pname = eff['Parameter']
                 scale = float(eff.get('Scale', 1.0))
                 nom = _get_nominal(pname, base_cfg, rocket_param, engine_param, unit)
-                effect_specs.append((pname, scale, nom))
+                effect_specs.append((pname, scale, nom, _target_unit(pname, rocket_param)))
 
             for var in variations:
                 effects_list = []
                 detail_parts = []
-                for pname, scale, nom in effect_specs:
-                    new_val = _compute_param_value(nom, var, unit, scale)
+                for pname, scale, nom, tunit in effect_specs:
+                    new_val = _compute_param_value(nom, var, unit, scale, target_unit=tunit)
                     effects_list.append((pname, nom, new_val))
                     detail_parts.append(f'{pname}: {nom:.4g}→{new_val:.4g}')
                 case_defs.append((
@@ -165,6 +201,17 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
             fget = _POI_META[pname][0]
             arr = np.loadtxt(fget(rocket_param), delimiter=',', skiprows=1)
             poi_base_by_name[pname] = (arr[:, 0], arr[:, 1])
+
+    # Mach-dependent aero tables (CNa/Cld/Clp/Cmq/Cnr, X-C.P.), loaded once for the params
+    # actually varied here and only when the solver is reading them from a file.
+    aero_base_by_name = {}
+    _varied = {pn for cdef in case_defs for pn, _, _ in cdef[7]}
+    for pname in _varied & set(_AERO_FILE_BY_NAME):
+        spec = _AERO_FILE_BY_NAME[pname]
+        if not spec.file_check(rocket_param):
+            continue
+        arr = np.loadtxt(spec.get_path(rocket_param), delimiter=',', skiprows=1)
+        aero_base_by_name[pname] = (arr[:, 0], arr[:, 1])
 
     calc_dir = 'cases'
     os.mkdir(work_dir + '/' + calc_dir)
@@ -198,10 +245,20 @@ def run_sensitivity(solver_config_json_file_name, sensitivity_config_json_file_n
                 np.savetxt(prefix + pf, np.c_[t_arr, v_arr * new_val],
                            delimiter=',', fmt='%0.9f', header=f'Time,{label}', comments='')
                 rp = fset(rp, pf)
+            elif pname in aero_base_by_name:
+                # file mode: new_val is the multiplier ('scale') or the offset ('offset');
+                # write a per-case table and point this case at it
+                spec = _AERO_FILE_BY_NAME[pname]
+                mach_arr, base_arr = aero_base_by_name[pname]
+                vals = base_arr * new_val if spec.mode == 'scale' else base_arr + new_val
+                af = f'{cn}_{spec.name}.csv'
+                np.savetxt(prefix + af, np.c_[mach_arr, vals],
+                           delimiter=',', fmt=_AERO_FMT, header=spec.header, comments='')
+                spec.set_path(rp, af)
             elif pname in _SCALAR_PARAM_REGISTRY:
-                cfg_key, _, setter = _SCALAR_PARAM_REGISTRY[pname]
+                p = _SCALAR_PARAM_REGISTRY[pname]
                 cfgs = {'rocket_param': rp, 'engine_param': ep, 'soe': soe_c, 'solver_config': sc}
-                setter(cfgs[cfg_key], new_val)
+                p.setter(cfgs[p.cfg_key], new_val)
             elif pname == 'Thrust':
                 if thrust_file_is_enable(engine_param):
                     # nom=1.0 for file mode; new_val is the scale factor

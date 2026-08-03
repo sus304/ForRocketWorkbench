@@ -23,7 +23,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 _REPO_ROOT = Path(__file__).resolve().parent
 
