@@ -7,15 +7,20 @@ _REPO_ROOT = Path(__file__).parent.parent
 _LINUX_BUILD = Path.home() / "ForRocket" / "build"
 
 
-def _find_binary() -> Path:
-    """Find the ForRocket binary. Prefers native Linux binary over Windows exe."""
+def _find_binary(cwd=None) -> Path:
+    """Find the ForRocket binary. Prefers native Linux binary over Windows exe.
+
+    `cwd` overrides the working directory used as the first search location; the compute service
+    passes the run dir it is about to launch the runner in, so it identifies the same binary the
+    run will use without having to chdir the service process."""
+    cwd = Path(cwd) if cwd is not None else Path.cwd()
     for name in ("ForRocket", "ForRocket.exe"):
-        for base in (Path.cwd(), _REPO_ROOT, _LINUX_BUILD):
+        for base in (cwd, _REPO_ROOT, _LINUX_BUILD):
             p = base / name
             if p.is_file():
                 return p
     raise FileNotFoundError(
-        f"ForRocket binary not found. Searched CWD ({Path.cwd()}), {_REPO_ROOT}, {_LINUX_BUILD}"
+        f"ForRocket binary not found. Searched CWD ({cwd}), {_REPO_ROOT}, {_LINUX_BUILD}"
     )
 
 
@@ -52,6 +57,26 @@ def cancel_current_solver():
     proc = _current_process
     if proc is not None:
         proc.terminate()
+
+
+def solver_version_string(cwd=None) -> str:
+    """The solver binary's `-v` output as one line, or '' if it cannot be determined.
+
+    Recorded per job by the compute service so a result can be attributed to a solver build
+    (service.worker). Never raises: a missing or unrunnable binary just leaves the version blank,
+    and the run itself will report the real failure.
+    """
+    try:
+        binary = _find_binary(cwd)
+        out = subprocess.run([str(binary), "-v"], cwd=str(cwd) if cwd else None,
+                             capture_output=True, text=True, timeout=10.0)
+    except (OSError, FileNotFoundError, subprocess.SubprocessError):
+        return ""
+    text = (out.stdout or "") + (out.stderr or "")
+    for line in text.splitlines():
+        if line.strip():
+            return line.strip()
+    return ""
 
 
 def print_solver_version_string():

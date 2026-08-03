@@ -9,8 +9,11 @@ from runner_tool.runner_area import run_area
 from runner_tool.runner_montecarlo import run_montecarlo, resume_montecarlo
 from runner_tool.runner_sensitivity import run_sensitivity
 from post_tool.post_sensitivity import post_sensitivity
+from version import workbench_version
 
-ver_runner_tool = '1.1.0'
+# The runner no longer carries a version of its own: it ships with the Workbench and is only ever
+# run from this tree, so a separate hand-maintained number could only ever drift (see version.py).
+ver_runner_tool = workbench_version()
 
 def _install_graceful_stop():
     """Install a SIGINT (Ctrl-C) handler for the long montecarlo modes.

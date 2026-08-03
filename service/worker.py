@@ -117,6 +117,7 @@ class Worker:
         self._execute(job, cmd, run_dir, work_name, job.work_dir)
 
     def _execute(self, job, cmd, run_dir: Path, work_name: str, abs_work_dir: str) -> None:
+        self._record_solver_version(job.id, run_dir)
         rc, out = self._spawn(job.id, cmd, run_dir)
 
         with self._lock:
@@ -142,6 +143,18 @@ class Worker:
 
         self._store.mark_completed(job.id, result_dir=abs_work_dir)
         self._emit(job.id, COMPLETED)
+
+    def _record_solver_version(self, job_id: int, run_dir: Path) -> None:
+        """Stamp the job with the solver build about to run it, resolved from the same directory
+        the runner is launched in so it names the binary that actually runs. Best-effort: a blank
+        version must never stop a run."""
+        try:
+            from runner_tool.solver_control import solver_version_string
+            version = solver_version_string(run_dir)
+        except Exception:
+            return
+        if version:
+            self._store.set_solver_version(job_id, version)
 
     def _emit(self, job_id: int, status: str, summary: str = "") -> None:
         try:

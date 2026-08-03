@@ -13,9 +13,11 @@ self-contained.
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
+import shutil
 import tarfile
 from copy import deepcopy
 from pathlib import Path
@@ -48,7 +50,12 @@ def _is_excluded_dir(name: str) -> bool:
     return name in _EXCLUDE_DIRS or any(name.startswith(p) for p in _WORK_PREFIXES)
 
 
-def _iter_closure_files(project_dir: Path) -> Iterator[Path]:
+def iter_closure_files(project_dir: Path) -> Iterator[Path]:
+    """Every file that belongs to a run's inputs, under project_dir.
+
+    Also the definition of "the inputs" for a job re-run (service.rerun), which copies a staged
+    run dir rather than re-packing a project — the work_* directories a finished run left behind
+    are outputs and must not be carried into the new run. One definition, both callers."""
     for root, dirs, files in os.walk(project_dir):
         dirs[:] = [d for d in dirs if not _is_excluded_dir(d)]
         for f in files:
@@ -72,7 +79,7 @@ def pack_closure(project_dir, mode: str) -> bytes:
 
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        for f in _iter_closure_files(project_dir):
+        for f in iter_closure_files(project_dir):
             arc = f.relative_to(project_dir).as_posix()
             if rewritten and arc == rewritten[0]:
                 continue  # replaced with the path-rewritten version below
@@ -110,6 +117,50 @@ def _resolve_external_mc_wind(project_dir: Path):
     new_cfg = deepcopy(cfg)
     new_cfg["Error Parameters"]["Wind"]["Wind Files Zip Path"] = _BUNDLED_WIND_ZIP
     return ("config_montecarlo.json", json.dumps(new_cfg).encode("utf-8")), [(_BUNDLED_WIND_ZIP, src)]
+
+
+def copy_closure(src_dir, dest_dir) -> int:
+    """Copy a run's inputs from one directory to another, skipping work dirs and caches.
+    Returns the number of files copied.
+
+    This is the re-run path (service.rerun): the source is a job's staged run dir, so the copy
+    reproduces the exact bytes that run used — not whatever the originating project says today.
+    """
+    src = Path(src_dir)
+    dest = Path(dest_dir)
+    count = 0
+    for f in iter_closure_files(src):
+        target = dest / f.relative_to(src)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(f), str(target))
+        count += 1
+    return count
+
+
+def closure_hash(root) -> str:
+    """Content hash of a directory's run inputs: sha256 over (relative path, file digest) pairs
+    in path order. Two runs with the same hash had byte-identical inputs, whether they were
+    submitted from a project, uploaded, or re-run — which is what makes "same config, new build"
+    a claim rather than an assumption. Empty string if the directory holds no inputs.
+    """
+    root = Path(root)
+    entries = sorted((f.relative_to(root).as_posix(), f) for f in iter_closure_files(root))
+    if not entries:
+        return ""
+    h = hashlib.sha256()
+    for rel, path in entries:
+        h.update(rel.encode("utf-8"))
+        h.update(b"\0")
+        h.update(_file_digest(path))
+    return h.hexdigest()
+
+
+def _file_digest(path: Path) -> bytes:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.digest()
 
 
 def _add_bytes(tar: tarfile.TarFile, arcname: str, data: bytes) -> None:

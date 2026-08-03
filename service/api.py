@@ -20,15 +20,17 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.responses import StreamingResponse
 
 from runner_tool.run_manifest import RunManifest
-from service import imports, plots, projects, results
+from service import imports, plots, projects, rerun, results
 from service.imports import ImportRejected
+from service.rerun import RerunConflict, RerunNotFound, RerunRejected
 from service.projects import (
     ProjectConflict, ProjectError, ProjectExists, ProjectNotFound,
 )
 from service.results import ResultError, ResultsGone
 from service.store import JobStore, PREPARING, QUEUED, RUNNING, TERMINAL_STATUSES
-from service.uploads import pack_closure, pack_result, safe_extract, UploadError
+from service.uploads import closure_hash, pack_closure, pack_result, safe_extract, UploadError
 from service.worker import Worker
+from version import workbench_version
 
 _MODES = {"trajectory", "area", "montecarlo", "sensitivity"}
 _ACTIVE = {PREPARING, QUEUED, RUNNING}
@@ -76,6 +78,13 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
             total = 0
         return {"done": done, "total": total}
 
+    def _rerun_available(job) -> bool:
+        # A re-run needs the job's staged inputs still on disk, and an imported job never had
+        # them (service.rerun). Only the cheap checks here — the endpoint re-validates.
+        if job.status in _ACTIVE or getattr(job, "source_path", ""):
+            return False
+        return worker.run_dir_for(job.id).is_dir()
+
     def _result_api_available(job) -> bool:
         # Capability by artifact existence, not status: a completed job whose work_dir was swept
         # by retention can no longer serve the result API (design §4 / review Y4).
@@ -97,7 +106,12 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
             "project": getattr(job, "project", "") or "",
             "memo": getattr(job, "memo", "") or "",
             "source_path": getattr(job, "source_path", "") or "",
+            "rerun_of": getattr(job, "rerun_of", None),
+            "input_hash": getattr(job, "input_hash", "") or "",
+            "solver_version": getattr(job, "solver_version", "") or "",
+            "code_version": getattr(job, "code_version", "") or "",
             "capability": {"can_cancel": job.status in _ACTIVE,
+                           "can_rerun": _rerun_available(job),
                            "result_api": _result_api_available(job)},
             "progress": progress_of(job),
         }
@@ -151,6 +165,9 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
         du = disk_free()
         return {
             "status": "ok",
+            # Unauthenticated on purpose: this is how a deploy verifies which build is actually
+            # serving, and how the UI notices it is running a different build than the service.
+            "workbench_version": workbench_version(),
             "worker_alive": worker.is_alive(),
             "running_job": worker.current_job_id(),
             "running_stall_seconds": running_stall_seconds(),
@@ -190,13 +207,15 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
             raise HTTPException(400, "provide either project or payload")
         data = await payload.read()
         job_id = store.create_preparing(mode=mode, model_name=model_name,
-                                        use_max_thread=use_max_thread)
+                                        use_max_thread=use_max_thread,
+                                        code_version=workbench_version())
         run_dir = worker.run_dir_for(job_id)
         try:
             safe_extract(data, run_dir)
         except UploadError as e:
             store.mark_failed(job_id, f"upload rejected: {e}")
             raise HTTPException(400, f"upload rejected: {e}")
+        store.set_input_hash(job_id, closure_hash(run_dir))
         store.mark_queued(job_id)
         return {"id": job_id, "status": QUEUED}
 
@@ -210,17 +229,20 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
             raise HTTPException(404, f"project not found: {project}")
         model_name = _model_id_of(proj_dir)
         job_id = store.create_preparing(mode=mode, model_name=model_name,
-                                        use_max_thread=use_max_thread, project=project)
+                                        use_max_thread=use_max_thread, project=project,
+                                        code_version=workbench_version())
         run_dir = worker.run_dir_for(job_id)
 
         def _stage():
             blob = pack_closure(proj_dir, mode)   # trusted-store pack (N-2 confirmed snapshot)
             safe_extract(blob, run_dir)
+            return closure_hash(run_dir)
         try:
-            await run_in_threadpool(_stage)
+            input_hash = await run_in_threadpool(_stage)
         except (UploadError, OSError, KeyError, ValueError) as e:
             store.mark_failed(job_id, f"closure build failed: {e}")
             raise HTTPException(422, f"closure build failed: {e}")
+        store.set_input_hash(job_id, input_hash)
         store.mark_queued(job_id)
         return {"id": job_id, "status": QUEUED}
 
@@ -242,6 +264,25 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
         except ImportRejected as e:
             raise HTTPException(422, str(e))
         return job_dict(store.get(job_id))
+
+    # ── re-run a finished job with identical inputs (service.rerun) ───────────
+    @app.post("/jobs/{job_id}/rerun", dependencies=auth)
+    async def rerun_job(job_id: int, memo: Optional[str] = Form(None),
+                        use_max_thread: Optional[bool] = Form(None)):
+        """Queue a new job whose inputs are copied from `job_id`'s staged run dir — the same
+        bytes that ran, not whatever its project holds now. `memo` defaults to the source's memo
+        tagged with its id; `use_max_thread` defaults to the source's setting."""
+        from fastapi.concurrency import run_in_threadpool
+        try:
+            new_id = await run_in_threadpool(rerun.rerun_job, store, worker, job_id,
+                                             memo, use_max_thread)
+        except RerunNotFound as e:
+            raise HTTPException(404, str(e))
+        except RerunConflict as e:
+            raise HTTPException(409, str(e))
+        except RerunRejected as e:
+            raise HTTPException(422, str(e))
+        return job_dict(store.get(new_id))
 
     @app.put("/jobs/{job_id}/memo", dependencies=auth)
     def set_memo(job_id: int, memo: str = Form("")):

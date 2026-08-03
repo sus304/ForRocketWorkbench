@@ -6,6 +6,7 @@ Thin argparse front end over service.client.ServiceClient. Connects to WB_SERVIC
     wb submit <project_dir> <mode> [--model M] [--max-thread]
     wb status <job_id>
     wb list [--status STATUS]
+    wb rerun <job_id> [--memo M] [--max-thread | --no-max-thread]
     wb cancel <job_id>
     wb pull <job_id> <dest> [--full]
 """
@@ -17,6 +18,7 @@ import os
 import sys
 
 from service.client import ServiceClient
+from version import workbench_version
 
 _MODES = ["trajectory", "area", "montecarlo", "sensitivity"]
 _DEFAULT_URL = "http://127.0.0.1:8760"
@@ -29,6 +31,8 @@ def _client_from_env() -> ServiceClient:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="wb", description="ForRocket Workbench compute-service client")
+    p.add_argument("-v", "--version", action="version",
+                   version=f"%(prog)s (ForRocket Workbench {workbench_version()})")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("submit", help="submit a job")
@@ -42,6 +46,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     ls = sub.add_parser("list", help="list jobs")
     ls.add_argument("--status", default=None)
+
+    rr = sub.add_parser("rerun", help="re-run a finished job with identical inputs")
+    rr.add_argument("job_id", type=int)
+    rr.add_argument("--memo", default=None, help="memo for the new job (default: inherited)")
+    # Three-state on purpose: unspecified inherits the source job's thread setting.
+    rr.add_argument("--max-thread", dest="max_thread", action="store_true", default=None)
+    rr.add_argument("--no-max-thread", dest="max_thread", action="store_false")
 
     c = sub.add_parser("cancel", help="cancel a job")
     c.add_argument("job_id", type=int)
@@ -63,6 +74,8 @@ def main(argv=None, client: ServiceClient = None) -> int:
         _emit(client.status(args.job_id))
     elif args.cmd == "list":
         _emit(client.list_jobs(args.status))
+    elif args.cmd == "rerun":
+        _emit(client.rerun(args.job_id, args.memo, args.max_thread))
     elif args.cmd == "cancel":
         _emit(client.cancel(args.job_id))
     elif args.cmd == "pull":

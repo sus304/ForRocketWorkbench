@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Optional
 
 from service.store import CANCELLED, FAILED
+from version import workbench_version
 
 # Work-directory name prefix -> mode (mirrors path_define's work dir names).
 _DIR_PREFIX_MODE = {
@@ -225,8 +226,11 @@ def import_result(store, worker, source: str, memo: str = "") -> int:
 
     src = Path(info["source"])
     mode = info["mode"]
+    # code_version records the build that post-processed the copy; there is no solver_version,
+    # since this service did not run the solver.
     job_id = store.create_preparing(mode=mode, model_name=info["model_id"],
-                                    source_path=str(src), memo=memo)
+                                    source_path=str(src), memo=memo,
+                                    code_version=workbench_version())
     run_dir = worker.run_dir_for(job_id)
     dest = run_dir / src.name
     try:

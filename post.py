@@ -4,8 +4,10 @@ import os
 from post_tool.post_trajectory import post_trajectory
 from post_tool.post_area import post_area
 from post_tool.post_montecarlo import post_montecarlo
+from version import workbench_version
 
-ver_post_tool = '1.1.0'
+# Versioned as one product with the Workbench (see version.py), not independently.
+ver_post_tool = workbench_version()
 
 def get_args():
     argparser = argparse.ArgumentParser(prog='PostTool')

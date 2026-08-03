@@ -98,6 +98,18 @@ def filter_jobs(jobs: list, query: str = '', mode: str = 'all', status: str = 'a
     return sorted(out, key=lambda j: j.get('id', 0), reverse=(sort != 'oldest'))
 
 
+def rerun_warning(mode: str) -> str:
+    """Caveat to show before re-running a job, or '' if the re-run is a faithful repeat.
+
+    Only Monte Carlo has one: its error parameters are re-sampled from the same config, so the
+    population differs and a before/after comparison is statistical, not case-by-case. Every
+    other mode is deterministic given identical inputs, which is what a re-run guarantees."""
+    if mode == 'montecarlo':
+        return ('Monte Carlo re-samples its error parameters, so this run gets a different '
+                'population. Compare statistics, not individual cases.')
+    return ''
+
+
 def _reason(exc: Exception) -> str:
     """Readable text for a failure shown in a toast. A path rejected by the results gateway
     arrives as an HTTPException (message in `.detail`) and a rejected import as ValueError(detail);
@@ -182,20 +194,27 @@ def jobs_page():
         # A single confirm dialog at PAGE scope (outside the refreshable list). Row buttons live
         # inside jobs_list, which the 2s timer rebuilds — a dialog created from a row would lose its
         # parent slot on refresh ("parent slot has been deleted"). This one persists; rows just set
-        # its message + callback and open it.
+        # its message + callback and open it. Shared by delete and re-run, so the action button's
+        # label and colour are set per use rather than baked in.
         confirm = {'cb': None}
         with ui.dialog() as confirm_dlg, ui.card():
             confirm_msg = ui.label('').classes('q-mb-sm')
+            confirm_warn = ui.label('').classes('text-warning text-caption q-mb-sm') \
+                .style('white-space:pre-wrap;max-width:32rem')
             with ui.row():
                 def _confirm_yes():
                     confirm_dlg.close()
                     if confirm['cb']:
                         confirm['cb']()
-                ui.button('Delete', on_click=_confirm_yes).props('color=negative')
+                confirm_btn = ui.button('Delete', on_click=_confirm_yes).props('color=negative')
                 ui.button('Cancel', on_click=confirm_dlg.close).props('flat')
 
-        def ask_confirm(message, cb):
+        def ask_confirm(message, cb, label='Delete', color='negative', warning=''):
             confirm_msg.set_text(message)
+            confirm_warn.set_text(warning)
+            confirm_warn.set_visibility(bool(warning))
+            confirm_btn.set_text(label)
+            confirm_btn.props(f'color={color}')
             confirm['cb'] = cb
             confirm_dlg.open()
 
@@ -247,6 +266,8 @@ def _job_row(job: dict, refresh=None, ask_confirm=None):
             # read as a job this service executed.
             if job.get('source_path'):
                 head += '  ·  ⤵ imported'
+            if job.get('rerun_of'):
+                head += f'  ·  ↻ #{job["rerun_of"]}'
             ui.link(head, f'/jobs/{jid}').classes('text-body1')
             sub = status
             if frac is not None and prog:
@@ -267,6 +288,10 @@ def _job_row(job: dict, refresh=None, ask_confirm=None):
             with ui.row().classes('q-gutter-xs'):
                 ui.button(icon='open_in_new', on_click=lambda j=jid: ui.navigate.to(f'/jobs/{j}')) \
                     .props('flat dense color=primary').tooltip('Open')
+                if job.get('capability', {}).get('can_rerun'):
+                    ui.button(icon='replay',
+                              on_click=lambda j=job: _rerun_job(j, refresh, ask_confirm)) \
+                        .props('flat dense color=primary').tooltip('Re-run with the same inputs')
                 if status in _ACTIVE_STATUSES:
                     ui.button(icon='cancel', on_click=lambda j=jid: _cancel(j)) \
                         .props('flat dense color=negative').tooltip('Cancel')
@@ -284,6 +309,30 @@ def _cancel(job_id: int):
         notify(f'Job #{job_id} cancel requested.', type='info')
     except Exception as exc:
         notify(f'Cancel failed: {exc}', type='negative')
+
+
+def _rerun_job(job: dict, refresh=None, ask_confirm=None):
+    """Queue a re-run of `job` with byte-identical inputs, after a confirmation that states the
+    Monte Carlo caveat where it applies."""
+    jid = job['id']
+
+    def _do():
+        try:
+            new = client().rerun(jid)
+        except Exception as exc:
+            notify(f'Re-run failed: {_reason(exc)}', type='negative', multi_line=True)
+            return
+        notify(f'Queued as job #{new["id"]}.', type='positive')
+        if refresh:
+            refresh()
+
+    msg = (f'Re-run job #{jid} ({job.get("mode")}) with the same inputs? '
+           f'It is queued as a new job, so #{jid} is kept for comparison.')
+    if ask_confirm:
+        ask_confirm(msg, _do, label='Re-run', color='primary',
+                    warning=rerun_warning(job.get('mode', '')))
+    else:
+        _do()
 
 
 def _delete_job(job_id: int, refresh=None, ask_confirm=None):
@@ -358,6 +407,10 @@ def _render_status(job: dict):
             ui.badge(status).props(f'color={color}')
             ui.label(f'{job["mode"]}  ·  {job.get("model_name") or "—"}').classes('text-body2')
             ui.space()
+            if job.get('capability', {}).get('can_rerun'):
+                ui.button('Re-run', icon='replay',
+                          on_click=lambda j=job: _rerun_from_detail(j)) \
+                    .props('flat dense color=primary')
             if job.get('capability', {}).get('can_cancel'):
                 ui.button('Cancel', icon='cancel',
                           on_click=lambda: _cancel(job['id'])).props('flat dense color=negative')
@@ -392,8 +445,69 @@ def _render_status(job: dict):
             ui.label(job['error_message']).classes('text-caption').style(
                 'white-space:pre-wrap;word-break:break-all;font-family:monospace')
 
+        _render_provenance(job)
+
         if job.get('work_dir'):
             ui.label(job['work_dir']).classes('text-caption text-grey q-mt-xs')
+
+
+def _render_provenance(job: dict) -> None:
+    """Which build produced this result, and — for a re-run — whether its inputs really were the
+    source job's. Without this a re-run proves nothing: two results that differ could differ
+    because of the fix or because the inputs moved."""
+    solver = job.get('solver_version') or ''
+    code = job.get('code_version') or ''
+    parent = job.get('rerun_of')
+    if not (solver or code or parent):
+        return
+    ui.separator().classes('q-my-sm')
+    with ui.row().classes('items-center q-gutter-md text-caption text-grey'):
+        if solver:
+            ui.label(f'solver: {solver}')
+        if code:
+            ui.label(f'workbench: {code}')
+    if parent:
+        with ui.row().classes('items-center q-gutter-sm text-caption q-mt-xs'):
+            ui.link(f'↻ re-run of job #{parent}', f'/jobs/{parent}')
+            try:
+                source = client().status(parent)
+            except Exception:
+                source = None
+            mine = job.get('input_hash') or ''
+            theirs = (source or {}).get('input_hash') or ''
+            if mine and theirs and mine == theirs:
+                ui.label('· inputs identical ✓').classes('text-positive')
+            elif mine and theirs:
+                # Should be unreachable: the re-run copies the source's staged inputs verbatim.
+                ui.label('· inputs DIFFER ⚠').classes('text-negative')
+
+
+def _rerun_from_detail(job: dict) -> None:
+    """Re-run from the detail page, then follow the new job. Uses its own dialog (the /jobs page's
+    shared confirm dialog is scoped to that page)."""
+    with ui.dialog() as dlg, ui.card().style('max-width:34rem'):
+        ui.label(f'Re-run job #{job["id"]}?').classes('text-subtitle1')
+        ui.label('The new job gets a byte-identical copy of this job\'s inputs; this job is '
+                 'kept for comparison.').classes('text-caption text-grey')
+        warning = rerun_warning(job.get('mode', ''))
+        if warning:
+            ui.label(warning).classes('text-warning text-caption q-mt-sm') \
+                .style('white-space:pre-wrap')
+
+        def _do():
+            dlg.close()
+            try:
+                new = client().rerun(job['id'])
+            except Exception as exc:
+                notify(f'Re-run failed: {_reason(exc)}', type='negative', multi_line=True)
+                return
+            notify(f'Queued as job #{new["id"]}.', type='positive')
+            ui.navigate.to(f'/jobs/{new["id"]}')
+
+        with ui.row().classes('justify-end full-width q-gutter-sm q-mt-md'):
+            ui.button('Cancel', on_click=dlg.close).props('flat')
+            ui.button('Re-run', on_click=_do).props('color=primary')
+    dlg.open()
 
 
 def _render_viewer(src: str, back_to: str) -> None:

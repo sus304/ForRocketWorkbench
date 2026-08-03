@@ -73,6 +73,19 @@ class Job(Base):
     # resolved realpath, so the same directory reached through two configured roots is one entry.
     source_path = Column(String, default="")
 
+    # rerun_of: the job this one was re-run from (service.rerun). A re-run copies the source job's
+    # staged inputs rather than re-packing its project, so the two are comparable by construction;
+    # this column is what lets the UI say which pair to compare.
+    rerun_of = Column(Integer, nullable=True)
+
+    # Provenance of a run, recorded so two results can be told apart when their inputs are
+    # identical by design: input_hash is the content hash of the staged input closure (equal
+    # hashes == byte-identical inputs), and the two version columns say which build produced the
+    # result. Without them a re-run after a solver fix proves nothing.
+    input_hash = Column(String, default="")
+    solver_version = Column(String, default="")
+    code_version = Column(String, default="")
+
     summary = Column(Text, default="")
     error_message = Column(Text, default="")
 
@@ -112,9 +125,13 @@ class JobStore:
         with self._engine.begin() as conn:
             existing = {row[1] for row in conn.execute(text("PRAGMA table_info(jobs)"))}
             for col, coltype in (("project", "VARCHAR"), ("memo", "TEXT"),
-                                 ("source_path", "VARCHAR")):
+                                 ("source_path", "VARCHAR"), ("input_hash", "VARCHAR"),
+                                 ("solver_version", "VARCHAR"), ("code_version", "VARCHAR")):
                 if col not in existing:
                     conn.execute(text(f"ALTER TABLE jobs ADD COLUMN {col} {coltype} DEFAULT ''"))
+            # rerun_of is nullable with no default: 0 would read as "re-run of job 0".
+            if "rerun_of" not in existing:
+                conn.execute(text("ALTER TABLE jobs ADD COLUMN rerun_of INTEGER"))
 
     # --- writes -------------------------------------------------------------
 
@@ -136,7 +153,8 @@ class JobStore:
 
     def create_preparing(self, mode: str, model_name: str = "", use_max_thread: bool = False,
                          input_ref: str = "", input_snapshot: str = "", project: str = "",
-                         source_path: str = "", memo: str = "") -> int:
+                         source_path: str = "", memo: str = "",
+                         rerun_of: Optional[int] = None, code_version: str = "") -> int:
         """Create a job in `preparing` (not yet claimable). Call mark_queued() once inputs
         are staged. An import never calls mark_queued: it goes straight to completed once the
         copy and post are done, so the worker never claims it."""
@@ -152,6 +170,8 @@ class JobStore:
                 project=project,
                 source_path=source_path,
                 memo=memo,
+                rerun_of=rerun_of,
+                code_version=code_version,
             )
             session.add(job)
             session.commit()
@@ -159,6 +179,15 @@ class JobStore:
 
     def set_memo(self, job_id: int, memo: str) -> None:
         self._update(job_id, memo=memo)
+
+    def set_input_hash(self, job_id: int, input_hash: str) -> None:
+        """Record the content hash of the staged inputs. Called once staging succeeds, so a job
+        that failed to stage carries no hash."""
+        self._update(job_id, input_hash=input_hash)
+
+    def set_solver_version(self, job_id: int, solver_version: str) -> None:
+        """Record the solver build that ran this job (worker, at launch)."""
+        self._update(job_id, solver_version=solver_version)
 
     def set_times(self, job_id: int, started_at=None, finished_at=None) -> None:
         """Override the run timestamps. Used by the importer to date a job by when its source

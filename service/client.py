@@ -73,6 +73,18 @@ class ServiceClient:
         r.raise_for_status()
         return r.json()
 
+    def rerun(self, job_id: int, memo: Optional[str] = None,
+              use_max_thread: Optional[bool] = None) -> dict:
+        """Queue a copy of a finished job with identical inputs. Returns the new job."""
+        data = {}
+        if memo is not None:
+            data["memo"] = memo
+        if use_max_thread is not None:
+            data["use_max_thread"] = "true" if use_max_thread else "false"
+        r = self.s.post(self._url(f"/jobs/{job_id}/rerun"), headers=self.headers, data=data)
+        r.raise_for_status()
+        return r.json()
+
     def delete_job(self, job_id: int) -> dict:
         r = self.s.delete(self._url(f"/jobs/{job_id}"), headers=self.headers)
         r.raise_for_status()

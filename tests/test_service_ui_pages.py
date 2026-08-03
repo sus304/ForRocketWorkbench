@@ -77,3 +77,11 @@ def test_progress_fraction():
     assert pages.progress_fraction({'done': 0, 'total': 0}) is None
     assert pages.progress_fraction(None) is None
     assert pages.progress_fraction({'done': 20, 'total': 10}) == 1.0  # clamped
+
+
+def test_rerun_warning_only_for_montecarlo():
+    """Deterministic modes repeat exactly given identical inputs; MC re-samples, so a re-run is a
+    different population and the confirmation has to say so."""
+    assert 're-sample' in pages.rerun_warning('montecarlo').lower()
+    for mode in ('trajectory', 'area', 'sensitivity'):
+        assert pages.rerun_warning(mode) == ''

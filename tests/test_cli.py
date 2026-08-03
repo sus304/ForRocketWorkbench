@@ -72,6 +72,24 @@ def test_cancel(sc, example):
     assert sc.status(jid)["status"] == "cancelled"
 
 
+def test_rerun_client_and_cli(sc, store, example):
+    """The client's rerun() and the `wb rerun` sub-command reach the same endpoint. The source is
+    cancelled first because a re-run is only offered for a finished job."""
+    from cli import wb
+
+    jid = sc.submit(example, "trajectory")["id"]
+    sc.cancel(jid)
+
+    new = sc.rerun(jid, memo="after solver fix")
+    assert new["rerun_of"] == jid
+    assert new["memo"] == "after solver fix"
+    assert new["input_hash"] == sc.status(jid)["input_hash"]
+
+    sc.cancel(new["id"])
+    assert wb.main(["rerun", str(new["id"])], client=sc) == 0
+    assert sc.status(store.list()[0].id)["rerun_of"] == new["id"]
+
+
 def test_pull_extracts_result(sc, store, worker, tmp_path, example):
     # fabricate a completed job with a result dir
     jid = store.create_preparing(mode="montecarlo")
