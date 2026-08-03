@@ -3,6 +3,7 @@ Core simulation runner for tests.
 Runs ForRocket binary in an isolated temp directory and returns results as DataFrame.
 """
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -26,6 +27,30 @@ def find_binary() -> Optional[Path]:
         if p.is_file():
             return p
     return None
+
+
+_VERSION_RE = re.compile(r"version\s*:\s*([0-9]+(?:\.[0-9]+)*)")
+
+UNKNOWN_VERSION = "unknown"
+
+
+def binary_version(binary_path: Union[str, Path]) -> str:
+    """
+    Return the solver version reported by `ForRocket --version`, e.g. "4.4.2".
+
+    Returns UNKNOWN_VERSION if the binary does not understand `--version`
+    (solvers older than v4.3) or prints something unparsable.
+    """
+    try:
+        proc = subprocess.run(
+            [str(binary_path), "--version"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return UNKNOWN_VERSION
+
+    m = _VERSION_RE.search(proc.stdout or "")
+    return m.group(1) if m else UNKNOWN_VERSION
 
 
 def load_configs(config_dir: Path, solver_config_name: str) -> Dict:
