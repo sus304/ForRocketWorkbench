@@ -85,3 +85,28 @@ def test_rerun_warning_only_for_montecarlo():
     assert 're-sample' in pages.rerun_warning('montecarlo').lower()
     for mode in ('trajectory', 'area', 'sensitivity'):
         assert pages.rerun_warning(mode) == ''
+
+
+def test_health_level_flags_a_dead_worker_and_low_disk():
+    """The strip must not report a stopped queue or an exhausted volume as ordinary grey
+    status text — both went unnoticed for hours that way."""
+    floor = 20 * 1024 ** 3
+    assert pages._health_level(True, 500 * 1024 ** 3, floor) == 'ok'
+    assert pages._health_level(True, 40 * 1024 ** 3, floor) == 'warn'   # inside the warn band
+    assert pages._health_level(True, 5 * 1024 ** 3, floor) == 'bad'     # below the floor
+    assert pages._health_level(False, 500 * 1024 ** 3, floor) == 'bad'  # dead worker dominates
+    # An unreadable or unreported figure must not masquerade as a problem.
+    assert pages._health_level(True, None, floor) == 'ok'
+    assert pages._health_level(True, 5 * 1024 ** 3, None) == 'ok'
+
+
+def test_health_warnings_say_what_stopped():
+    floor = 20 * 1024 ** 3
+    assert pages._health_warnings(True, 500 * 1024 ** 3, floor) == []
+
+    down = pages._health_warnings(False, 500 * 1024 ** 3, floor)
+    assert len(down) == 1 and 'no job will start' in down[0]
+
+    both = pages._health_warnings(False, 1024 ** 3, floor)
+    assert len(both) == 2
+    assert any('refused' in w for w in both)

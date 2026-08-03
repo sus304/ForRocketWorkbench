@@ -35,7 +35,45 @@ _STATUS_COLOR = {
 }
 
 
+# Free space is warned about well before the service's own floor, so there is time to delete
+# a finished run instead of discovering the problem when a job is refused.
+_DISK_WARN_FACTOR = 3.0
+
+
 # ── Pure helpers (unit-tested) ────────────────────────────────────────────────
+
+def _health_level(worker_alive: bool, free_bytes, floor_bytes) -> str:
+    """'bad' | 'warn' | 'ok' for the health strip.
+
+    A dead worker is always 'bad': the queue has stopped and only a service restart brings it
+    back, so it must not read as ordinary grey status text.
+    """
+    if not worker_alive:
+        return 'bad'
+    if free_bytes is None or not floor_bytes:
+        return 'ok'
+    if free_bytes < floor_bytes:
+        return 'bad'
+    if free_bytes < floor_bytes * _DISK_WARN_FACTOR:
+        return 'warn'
+    return 'ok'
+
+
+def _health_warnings(worker_alive: bool, free_bytes, floor_bytes) -> list:
+    """Spelled-out consequences for the conditions that stop work, empty when all is well.
+
+    The strip already shows the numbers; what was missing is what they mean — 'down' and
+    '0 GB free' both went unnoticed for hours because neither said the queue had stopped.
+    """
+    out = []
+    if not worker_alive:
+        out.append('⚠ The worker is not running: no job will start until the service is '
+                   'restarted.')
+    if free_bytes is not None and floor_bytes and free_bytes < floor_bytes:
+        out.append(f'⚠ Free space is below the {floor_bytes / 1e9:.0f} GB floor: new jobs are '
+                   'refused and a running job will be stopped. Delete a finished run.')
+    return out
+
 
 def fmt_hms(seconds: float) -> str:
     """Format a duration as H:MM:SS (or M:SS under an hour)."""
@@ -162,12 +200,20 @@ def jobs_page():
             free = h.get('disk_free_bytes')
             free_gb = f'{free / 1e9:.1f} GB free' if free else '—'
             running = h.get('running_job')
-            worker = 'alive' if h.get('worker_alive') else 'down'
+            alive = bool(h.get('worker_alive'))
+            worker = 'alive' if alive else 'down'
             run_txt = f'running #{running}' if running else 'idle'
             stall = h.get('running_stall_seconds')
             stall_txt = f' · stalled {fmt_hms(stall)}' if stall and stall > 300 else ''
-            with ui.row().classes('items-center q-gutter-sm text-caption text-grey'):
+            # Colour the strip against the floor the service actually enforces, and warn
+            # while there is still time to act (the run that filled the volume showed both
+            # "worker down" and "0 GB free" here, in grey caption text nobody reads).
+            level = _health_level(alive, free, h.get('disk_floor_bytes'))
+            colour = {'bad': 'text-negative', 'warn': 'text-warning'}.get(level, 'text-grey')
+            with ui.row().classes(f'items-center q-gutter-sm text-caption {colour}'):
                 ui.label(f'Worker: {worker} · {run_txt} · disk {free_gb}{stall_txt}')
+            for warning in _health_warnings(alive, free, h.get('disk_floor_bytes')):
+                ui.label(warning).classes('text-caption text-negative')
 
         health_strip()
 
@@ -331,10 +377,17 @@ def _job_row(job: dict, refresh=None, ask_confirm=None, editing=None):
 
 def _cancel(job_id: int):
     try:
-        client().cancel(job_id)
-        notify(f'Job #{job_id} cancel requested.', type='info')
+        res = client().cancel(job_id)
     except Exception as exc:
         notify(f'Cancel failed: {exc}', type='negative')
+        return
+    # Report what the service actually did. Announcing "cancel requested" unconditionally is
+    # how a cancel that took no effect at all read as a working button.
+    if res.get('cancelled'):
+        notify(f'Job #{job_id} cancel requested.', type='info')
+    else:
+        notify(f'Job #{job_id} was not cancelled (status: {res.get("status", "unknown")}).',
+               type='warning')
 
 
 def _rerun_job(job: dict, refresh=None, ask_confirm=None):
