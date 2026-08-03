@@ -218,8 +218,19 @@ def jobs_page():
             confirm['cb'] = cb
             confirm_dlg.open()
 
+        # The memo field lives inside the job list, which the 2s timer rebuilds — a rebuild
+        # destroys the input element, so the browser drops focus and the half-typed text with it.
+        # Suspend the *list* refresh while a memo input holds focus (the health strip keeps
+        # ticking); blur re-enables it, and blur is also when the memo is saved, so the row
+        # redraws with the persisted value right after.
+        editing = {'memo': 0}
+
         @ui.refreshable
         def jobs_list():
+            # A rebuild destroys every memo input, so no memo can still be focused afterwards —
+            # reset the guard here so a focus event that never got its blur (row deleted, refresh
+            # forced by a filter change) cannot freeze the list permanently.
+            editing['memo'] = 0
             try:
                 jobs = filter_jobs(client().list_jobs(), flt['q'], flt['mode'],
                                    flt['status'], flt['sort'])
@@ -231,18 +242,19 @@ def jobs_page():
                 return
             with ui.list().props('bordered separator').classes('w-full'):
                 for job in jobs:
-                    _job_row(job, jobs_list.refresh, ask_confirm)
+                    _job_row(job, jobs_list.refresh, ask_confirm, editing)
 
         jobs_list()
 
         def _tick():
             health_strip.refresh()
-            jobs_list.refresh()
+            if not editing['memo']:
+                jobs_list.refresh()
 
         ui.timer(2.0, _tick)
 
 
-def _job_row(job: dict, refresh=None, ask_confirm=None):
+def _job_row(job: dict, refresh=None, ask_confirm=None, editing=None):
     jid = job['id']
     status = job['status']
     color = _STATUS_COLOR.get(status, 'grey')
@@ -276,14 +288,28 @@ def _job_row(job: dict, refresh=None, ask_confirm=None):
                 sub = f'{status} · {job["error_message"].splitlines()[0][:80]}'
             ui.item_label(sub).props('caption')
 
-            def _save_memo(e, j=jid):
+            # A raw `.on()` handler is passed GenericEventArguments (sender/client/args), not the
+            # value — read the current text off the input element itself.
+            def _save_memo(j=jid):
                 try:
-                    client().set_memo(j, e.value or '')
+                    client().set_memo(j, memo_in.value or '')
                 except Exception as exc:
                     notify(f'Memo save failed: {exc}', type='negative')
-            ui.input('memo', value=job.get('memo') or '') \
-                .props('dense borderless').classes('text-caption') \
-                .on('blur', _save_memo).on('keydown.enter', _save_memo)
+
+            def _memo_focus():
+                if editing is not None:
+                    editing['memo'] += 1
+
+            def _memo_blur():
+                if editing is not None:
+                    editing['memo'] = max(0, editing['memo'] - 1)
+                _save_memo()
+
+            memo_in = ui.input('memo', value=job.get('memo') or '') \
+                .props('dense borderless').classes('text-caption')
+            memo_in.on('focus', _memo_focus)
+            memo_in.on('blur', _memo_blur)
+            memo_in.on('keydown.enter', _save_memo)
         with ui.item_section().props('side'):
             with ui.row().classes('q-gutter-xs'):
                 ui.button(icon='open_in_new', on_click=lambda j=jid: ui.navigate.to(f'/jobs/{j}')) \
