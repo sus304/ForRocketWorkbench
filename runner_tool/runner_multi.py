@@ -7,6 +7,30 @@ from tqdm import tqdm
 
 from runner_tool.runner_single import run_single
 
+# Per-case outcomes returned by _worker.
+RAN = 'ran'          # solver (and any per-case post step) succeeded; recorded complete
+SKIPPED = 'skipped'  # never started, because a cooperative stop was already requested
+FAILED = 'failed'    # raised; deliberately NOT recorded complete, so resume re-runs it
+
+# Append-only list of case names that failed, written next to the completion manifest. The
+# manifest alone cannot express "attempted and failed" — a case is either in it or not — so a
+# run that finishes with cases missing would otherwise look identical to one that never
+# started them.
+FAILED_CASES_FILENAME = 'failed_cases.txt'
+
+
+def _record_failed_case(manifest, filename):
+    """Best-effort note that a case failed. Never raises: the failure is already being
+    handled, and losing the note must not cost the rest of the run."""
+    if manifest is None:
+        return
+    try:
+        path = os.path.join(os.path.dirname(manifest.path), FAILED_CASES_FILENAME)
+        with open(path, 'a') as f:
+            f.write(filename + '\n')
+    except OSError:
+        pass
+
 
 def _case_flight_logs(cases_dir, solver_config_file_name):
     case_num = os.path.basename(solver_config_file_name).split('_', 1)[0]
@@ -85,11 +109,20 @@ def _worker(args):
     # in flight finish normally; un-started cases stay out of the manifest and are re-run
     # on resume. Returns a sentinel so run_multi can count what it skipped.
     if stop_event is not None and stop_event.is_set():
-        return False
+        return SKIPPED
     os.chdir(cases_dir)
-    run_single(filename)
-    if on_case_complete is not None:
-        on_case_complete(cases_dir, filename)
+    try:
+        run_single(filename)
+        if on_case_complete is not None:
+            on_case_complete(cases_dir, filename)
+    except Exception as exc:
+        # One bad case must neither take the run down nor be recorded complete. Staying out
+        # of the manifest is exactly what makes resume re-run it; marking it done instead is
+        # how a full disk (torn case configs, solvers that wrote nothing) produced thousands
+        # of "completed" cases with no output, which post then read as real samples.
+        print(f'Case failed and was left incomplete for resume: {filename}: {exc}')
+        _record_failed_case(manifest, filename)
+        return FAILED
     # Record completion LAST, after the solver run and any per-case post step both
     # succeeded, so an interrupted run never marks a case it didn't fully finish.
     #
@@ -101,7 +134,7 @@ def _worker(args):
     # reboot-resume regression in tests/test_mc_durability.py.
     if manifest is not None:
         manifest.mark(filename)
-    return True
+    return RAN
 
 
 def run_multi(cases_dir, solver_config_file_list, max_thread_run=False, on_case_complete=None,
@@ -160,19 +193,29 @@ def run_multi(cases_dir, solver_config_file_list, max_thread_run=False, on_case_
     original_cwd = os.getcwd()
     time_start = datetime.datetime.now()
     ran = 0
+    failed = 0
     try:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(_worker, arg) for arg in args]
             for fut in tqdm(as_completed(futures), total=len(futures)):
-                if fut.result():
+                outcome = fut.result()
+                if outcome == RAN:
                     ran += 1
+                elif outcome == FAILED:
+                    failed += 1
     finally:
         os.chdir(original_cwd)
     elapsed = datetime.datetime.now() - time_start
 
     if stop_event is not None and stop_event.is_set():
-        not_started = len(args) - ran
+        not_started = len(args) - ran - failed
         print(f'Paused. Ran {ran} case(s) this session; {not_started} not started. '
               f'Resume with --resume-work-dir to finish the rest. Elapsed: {elapsed}')
     else:
         print(f'Complete. Elapsed: {elapsed}')
+    if failed:
+        # Loud and last: an incomplete result set is the kind of thing that otherwise gets
+        # read as a full one. The names are in FAILED_CASES_FILENAME next to the manifest.
+        print(f'WARNING: {failed} of {len(args)} case(s) failed and were NOT recorded '
+              f'complete. The statistics below cover {ran} case(s). See '
+              f'{FAILED_CASES_FILENAME}; resume the run to retry them.')

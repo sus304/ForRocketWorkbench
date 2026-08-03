@@ -40,16 +40,40 @@ def clean_solver_binary(dst_dir):
 
 _current_process = None
 
+_SOLVER_OUTPUT_TAIL = 2000  # chars of solver output carried in a SolverError
+
+
+class SolverError(RuntimeError):
+    """The ForRocket binary exited non-zero for one case.
+
+    Raised so a failed case is *visible*. The exit code used to be discarded, which let a case
+    that produced nothing be recorded as complete — an empty flight log that post then read as
+    a real sample. That is how a full disk turned thousands of failed cases into silently
+    missing statistics rather than an error.
+    """
+
+    def __init__(self, config_file_name, returncode, output=''):
+        self.config_file_name = config_file_name
+        self.returncode = returncode
+        self.output = output
+        message = f'solver exited {returncode} for {config_file_name}'
+        super().__init__(f'{message}\n{output}' if output else message)
+
 
 def run_solver(solver_config_json_file_path, cwd=None):
     global _current_process
     binary = _find_binary()
-    _current_process = subprocess.Popen(
+    proc = subprocess.Popen(
         [str(binary), solver_config_json_file_path],
         cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
     )
-    _current_process.communicate()
+    _current_process = proc
+    out, _ = proc.communicate()
     _current_process = None
+    if proc.returncode != 0:
+        text = out.decode('utf-8', 'replace') if isinstance(out, bytes) else (out or '')
+        raise SolverError(os.path.basename(str(solver_config_json_file_path)),
+                          proc.returncode, text[-_SOLVER_OUTPUT_TAIL:])
 
 
 def cancel_current_solver():

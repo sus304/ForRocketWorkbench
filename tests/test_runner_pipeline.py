@@ -502,3 +502,59 @@ def test_area_produces_per_case_flight_logs(binary_path, project_copy):
     assert work_dirs, "no work_area directory was created"
     logs = list(work_dirs[0].glob("*_stage1_flight_log.csv"))
     assert len(logs) >= 2, f"expected >=2 flight logs in {work_dirs[0]}, got {len(logs)}"
+
+
+def test_failed_case_is_not_recorded_complete_and_is_retried_on_resume(monkeypatch, project_copy):
+    """A case whose solver fails must stay OUT of the completion manifest.
+
+    Recording it complete is how a full disk produced thousands of "completed" cases that had
+    written nothing: the manifest said done, resume skipped them, and post read the gap as a
+    smaller-but-valid population. The failure must also be visible on disk, since a run that
+    ends with cases missing otherwise looks exactly like a full one.
+    """
+    from runner_tool.run_manifest import RunManifest
+    from runner_tool.runner_multi import FAILED_CASES_FILENAME
+    from runner_tool.runner_montecarlo import resume_montecarlo
+    from runner_tool.solver_control import SolverError
+
+    case_count = 5
+    doomed = {2}
+    runs = []
+
+    def _fake_run_solver(solver_config_json_file_path, cwd=None):
+        with open(solver_config_json_file_path) as f:
+            cfg = json.load(f)
+        case_num = int(cfg['Model ID'].split('_', 1)[0])
+        runs.append(case_num)
+        if case_num in doomed:
+            raise SolverError(solver_config_json_file_path, 1, 'synthetic solver failure')
+        _synthetic_flight_log().to_csv(f"{cfg['Model ID']}_stage1_flight_log.csv", index=False)
+    monkeypatch.setattr("runner_tool.runner_single.run_solver", _fake_run_solver)
+
+    disable_parachute(project_copy)
+    _disable_all_mc_errors(project_copy / "config_montecarlo.json", case_count,
+                           output_all_logs=False)
+    with chdir(str(project_copy)):
+        run_montecarlo("config_solver.json", "config_montecarlo.json")
+
+    work_dir = list(project_copy.glob("work_montecarlo*"))[0]
+    completed = (work_dir / RunManifest.FILENAME).read_text().split()
+    assert len(completed) == case_count - len(doomed)
+    assert "2_solver_config.json" not in completed, "a failed case must not be marked complete"
+
+    # The failure is recorded where a human (and a later resume) can see it.
+    assert (work_dir / FAILED_CASES_FILENAME).read_text().strip() == "2_solver_config.json"
+
+    # Metrics cover only the cases that actually ran.
+    assert len(pd.read_csv(work_dir / CASE_METRICS_FILE)) == case_count - len(doomed)
+
+    # Resume retries exactly the failed case, and it lands once the solver stops failing.
+    doomed.clear()
+    runs.clear()
+    with chdir(str(project_copy)):
+        resume_montecarlo("config_montecarlo.json", str(work_dir))
+
+    assert runs == [2], f"resume re-ran {runs}, expected only the failed case"
+    completed = (work_dir / RunManifest.FILENAME).read_text().split()
+    assert sorted(completed) == sorted(f"{i}_solver_config.json" for i in range(case_count))
+    assert len(pd.read_csv(work_dir / CASE_METRICS_FILE)) == case_count
