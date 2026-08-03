@@ -257,6 +257,23 @@ class JobStore:
             session.commit()
             return res.rowcount == 1
 
+    def force_cancel_running(self, job_id: int) -> bool:
+        """Release a job whose row says `running` but which nothing is executing. Returns True
+        iff it flipped to cancelled.
+
+        Only the worker may call this, and only after it has established that it owns no
+        process for the job: a crash, or a worker thread that died before recording a terminal
+        state, leaves a row that is active forever — it cannot be cancelled, deleted or
+        re-run, and it makes every later health reading look like a stalled run."""
+        with self._Session() as session:
+            res = session.execute(
+                update(Job)
+                .where(Job.id == job_id, Job.status == RUNNING)
+                .values(status=CANCELLED, finished_at=_now())
+            )
+            session.commit()
+            return res.rowcount == 1
+
     def requeue(self, job_id: int) -> None:
         """Reset a job to queued for recovery re-run (short modes have no resume path)."""
         self._update(job_id, status=QUEUED, started_at=None, finished_at=None, work_dir="")

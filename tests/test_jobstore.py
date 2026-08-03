@@ -244,3 +244,27 @@ def test_delete_removes_record(store):
     assert store.get(b) is not None          # unrelated job untouched
     assert store.delete(a) is False          # already gone
     assert store.delete(999) is False        # never existed
+
+
+def test_force_cancel_running_releases_an_orphan_row(store):
+    """A row left `running` by a crashed or dead worker must be releasable, or the job stays
+    active forever: undeletable, un-rerunnable, and permanently 'stalled' in health."""
+    jid = store.enqueue(mode="montecarlo")
+    store.claim_next()
+    assert store.get(jid).status == RUNNING
+
+    assert store.force_cancel_running(jid) is True
+    released = store.get(jid)
+    assert released.status == CANCELLED
+    assert released.finished_at is not None
+
+
+def test_force_cancel_running_only_touches_running_jobs(store):
+    queued = store.enqueue(mode="trajectory")
+    assert store.force_cancel_running(queued) is False
+    assert store.get(queued).status == QUEUED
+
+    done = store.enqueue(mode="trajectory")
+    store.mark_completed(done, result_dir="/tmp/x")
+    assert store.force_cancel_running(done) is False
+    assert store.get(done).status == COMPLETED

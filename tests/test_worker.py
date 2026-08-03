@@ -50,6 +50,34 @@ open(os.path.join(wd, "post_done.txt"), "w").write("ok")
 sys.exit(0)
 '''
 
+# Spawns a child of its own before sleeping, the way runner.py spawns solvers, and records its
+# pid so a test can assert the whole tree died — not just the process the worker holds.
+_STUB_RUNNER_WITH_CHILD = '''\
+import os, subprocess, sys, time
+rd = os.getcwd()
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+open(os.path.join(rd, "_child_pid"), "w").write(str(child.pid))
+time.sleep(60)
+'''
+
+# Writes the stop-flag path it was given, then waits for the flag to appear and exits 0 —
+# the cooperative pause runner.py implements for montecarlo.
+_STUB_RUNNER_STOP_FLAG = '''\
+import os, sys, time
+args = sys.argv[1:]
+flag = None
+for i, a in enumerate(args):
+    if a == "--stop-flag-file":
+        flag = args[i + 1]
+open(os.path.join(os.getcwd(), "_flag_arg"), "w").write(flag or "")
+deadline = time.time() + 60
+while time.time() < deadline:
+    if flag and os.path.exists(flag):
+        sys.exit(0)
+    time.sleep(0.05)
+sys.exit(0)
+'''
+
 
 @pytest.fixture
 def stubs(tmp_path):
@@ -191,6 +219,197 @@ def test_loop_drains_queue_in_fifo_order(worker, store):
     assert starts == sorted(starts)
 
 
+# --- the loop must outlive any single job -------------------------------------
+#
+# A worker thread that dies stops the queue silently: jobs stay `running` with nothing behind
+# them, cancel has no process to signal, and only a service restart brings execution back. A
+# full disk did exactly that once — the ENOSPC surfaced as a SQLite error inside mark_failed
+# and unwound straight out of the thread.
+
+def _wait_for(predicate, timeout=10.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_loop_survives_a_job_that_raises(worker, store):
+    boom = store.enqueue(mode="trajectory")
+    later = store.enqueue(mode="trajectory")
+    _prepare_run_dir(worker, boom)
+    _prepare_run_dir(worker, later)
+
+    real_run_one = worker.run_one
+
+    def exploding(job):
+        if job.id == boom:
+            raise RuntimeError("database or disk is full")
+        return real_run_one(job)
+
+    worker.run_one = exploding
+    worker.start()
+    try:
+        assert _wait_for(lambda: store.get(later).status == COMPLETED), \
+            "the queue must keep draining after a job blew up"
+        assert worker.is_alive()
+    finally:
+        worker.stop()
+
+    failed = store.get(boom)
+    assert failed.status == FAILED
+    assert "worker error" in failed.error_message
+
+
+def test_loop_survives_a_store_that_cannot_record_the_failure(worker, store, monkeypatch):
+    """The disk-full case: the job fails AND the store cannot be written. The worker must give
+    up on recording it rather than die, leaving a row a later cancel can still release."""
+    monkeypatch.setattr("service.worker._ERROR_BACKOFF_SEC", 0.01)
+    jid = store.enqueue(mode="trajectory")
+    _prepare_run_dir(worker, jid)
+
+    def unwritable(*a, **k):
+        raise RuntimeError("database or disk is full")
+
+    monkeypatch.setattr(worker, "run_one", unwritable)
+    monkeypatch.setattr(store, "mark_failed", unwritable)
+
+    worker.start()
+    try:
+        assert _wait_for(lambda: store.get(jid).status == RUNNING and worker.is_alive())
+        time.sleep(0.2)
+        assert worker.is_alive(), "an unwritable store must not take the worker down"
+    finally:
+        worker.stop()
+
+
+# --- cancel reaches the whole process tree ------------------------------------
+
+def test_cancel_kills_the_solver_children_too(tmp_path, store, stubs):
+    """Signalling only the direct child left solvers orphaned and still burning cores."""
+    _, post_py = stubs
+    runner_py = tmp_path / "stub_runner_child.py"
+    runner_py.write_text(_STUB_RUNNER_WITH_CHILD)
+    w = Worker(store, tmp_path / "data", python=sys.executable,
+               runner_py=str(runner_py), post_py=str(post_py), poll=0.05)
+
+    jid = store.enqueue(mode="montecarlo")
+    run_dir = _prepare_run_dir(w, jid)
+    job = store.claim_next()
+    t = threading.Thread(target=w.run_one, args=(job,))
+    t.start()
+    try:
+        pid_file = run_dir / "_child_pid"
+        assert _wait_for(lambda: pid_file.exists() and pid_file.read_text().strip())
+        child_pid = int(pid_file.read_text().strip())
+        assert w.cancel(jid) is True
+    finally:
+        t.join(30)
+
+    assert store.get(jid).status == CANCELLED
+
+    def _gone():
+        try:
+            os.kill(child_pid, 0)
+        except OSError:
+            return True
+        return False
+
+    assert _wait_for(_gone), f"solver child {child_pid} outlived the cancel"
+
+
+def test_cancel_releases_a_running_row_with_no_process(worker, store):
+    """A row left `running` by a dead worker is otherwise stuck active forever: it cannot be
+    cancelled, deleted or re-run, and every health reading looks like a stalled job."""
+    jid = store.enqueue(mode="montecarlo")
+    store.claim_next()
+    assert store.get(jid).status == RUNNING
+    assert worker.current_job_id() is None  # nothing is executing it
+
+    assert worker.cancel(jid) is True
+    assert store.get(jid).status == CANCELLED
+
+
+# --- low disk stops a run before ENOSPC corrupts it ---------------------------
+
+def test_job_is_refused_when_disk_is_below_the_floor(tmp_path, store, stubs, monkeypatch):
+    runner_py, post_py = stubs
+    w = Worker(store, tmp_path / "data", python=sys.executable,
+               runner_py=str(runner_py), post_py=str(post_py), poll=0.05,
+               disk_floor_bytes=20 * 1024 ** 3)
+    monkeypatch.setattr(w, "disk_free_bytes", lambda: 1 * 1024 ** 3)
+
+    jid = store.enqueue(mode="montecarlo")
+    _prepare_run_dir(w, jid)
+    job = store.claim_next()
+    w.run_one(job)
+
+    refused = store.get(jid)
+    assert refused.status == FAILED
+    assert "below the" in refused.error_message and "floor" in refused.error_message
+    assert not refused.work_dir or not (Path(refused.work_dir) / "ran.txt").exists()
+
+
+def test_low_disk_stops_a_running_montecarlo_via_the_stop_flag(tmp_path, store, stubs,
+                                                               monkeypatch):
+    """MC gets a cooperative stop: in-flight cases finish, the manifest stays consistent and
+    the work dir is resumable. The job is reported as a disk failure, not as the runner's
+    incidental exit code."""
+    monkeypatch.setattr("service.worker._DISK_POLL_SEC", 0.05)
+    _, post_py = stubs
+    runner_py = tmp_path / "stub_runner_flag.py"
+    runner_py.write_text(_STUB_RUNNER_STOP_FLAG)
+    w = Worker(store, tmp_path / "data", python=sys.executable,
+               runner_py=str(runner_py), post_py=str(post_py), poll=0.05,
+               disk_floor_bytes=20 * 1024 ** 3)
+
+    free = {"bytes": 100 * 1024 ** 3}
+    monkeypatch.setattr(w, "disk_free_bytes", lambda: free["bytes"])
+
+    jid = store.enqueue(mode="montecarlo")
+    run_dir = _prepare_run_dir(w, jid)
+    job = store.claim_next()
+    t = threading.Thread(target=w.run_one, args=(job,))
+    t.start()
+    try:
+        assert _wait_for(lambda: (run_dir / "_flag_arg").exists())
+        assert (run_dir / "_flag_arg").read_text().strip(), \
+            "montecarlo must be launched with --stop-flag-file"
+        free["bytes"] = 1 * 1024 ** 3  # the volume fills
+    finally:
+        t.join(30)
+
+    stopped = store.get(jid)
+    assert stopped.status == FAILED
+    assert "free space fell to" in stopped.error_message
+    assert stopped.work_dir and stopped.work_dir in stopped.error_message
+
+
+def test_stale_stop_flag_is_cleared_before_a_run(tmp_path, store, stubs):
+    """A flag left by the previous run would pause a resume the moment it started."""
+    _, post_py = stubs
+    runner_py = tmp_path / "stub_runner_flag.py"
+    runner_py.write_text(_STUB_RUNNER_STOP_FLAG)
+    w = Worker(store, tmp_path / "data", python=sys.executable,
+               runner_py=str(runner_py), post_py=str(post_py), poll=0.05)
+
+    jid = store.enqueue(mode="montecarlo")
+    run_dir = _prepare_run_dir(w, jid)
+    (run_dir / "stop.flag").write_text("stale")
+
+    job = store.claim_next()
+    t = threading.Thread(target=w.run_one, args=(job,))
+    t.start()
+    try:
+        assert _wait_for(lambda: (run_dir / "_flag_arg").exists())
+        time.sleep(0.3)
+        assert store.get(jid).status == RUNNING, "a stale flag must not pause the new run"
+        (run_dir / "stop.flag").touch()  # let the stub exit
+    finally:
+        t.join(30)
+
+
 # --- end-to-end with the real binary -----------------------------------------
 
 def test_run_one_trajectory_end_to_end(binary_path, store, tmp_path, projects_dir):
@@ -216,3 +435,53 @@ def test_run_one_trajectory_end_to_end(binary_path, store, tmp_path, projects_di
     assert wd.is_dir()
     assert wd.name.startswith("work_trajectory")
     assert any(wd.iterdir())
+
+
+def test_cancel_during_post_takes_effect(tmp_path, store, stubs):
+    """Post used to run with no registered process: cancel found nothing to signal, returned
+    False, and the UI announced success anyway. The job must stay cancellable until it is
+    actually finished."""
+    runner_py, _ = stubs
+    post_py = tmp_path / "stub_post_slow.py"
+    post_py.write_text('import os, sys, time\n'
+                       'open(os.path.join(os.getcwd(), "_post_started"), "w").write("1")\n'
+                       'time.sleep(60)\n')
+    w = Worker(store, tmp_path / "data", python=sys.executable,
+               runner_py=str(runner_py), post_py=str(post_py), poll=0.05)
+
+    jid = store.enqueue(mode="montecarlo")
+    run_dir = _prepare_run_dir(w, jid)
+    job = store.claim_next()
+    t = threading.Thread(target=w.run_one, args=(job,))
+    t.start()
+    try:
+        assert _wait_for(lambda: (run_dir / "_post_started").exists())
+        assert w.current_job_id() == jid, "the job must still be owned while post runs"
+        assert w.cancel(jid) is True
+    finally:
+        t.join(30)
+
+    assert store.get(jid).status == CANCELLED
+
+
+def test_cancel_does_not_release_a_job_the_worker_still_owns(tmp_path, store, stubs):
+    """force_cancel_running is only for orphan rows. A live run must be killed, never merely
+    relabelled, or the row would say cancelled while solvers kept burning cores."""
+    _, post_py = stubs
+    runner_py = tmp_path / "stub_runner_child.py"
+    runner_py.write_text(_STUB_RUNNER_WITH_CHILD)
+    w = Worker(store, tmp_path / "data", python=sys.executable,
+               runner_py=str(runner_py), post_py=str(post_py), poll=0.05)
+
+    jid = store.enqueue(mode="montecarlo")
+    run_dir = _prepare_run_dir(w, jid)
+    job = store.claim_next()
+    t = threading.Thread(target=w.run_one, args=(job,))
+    t.start()
+    try:
+        assert _wait_for(lambda: (run_dir / "_child_pid").exists())
+        assert w.current_job_id() == jid
+        w.cancel(jid)
+    finally:
+        t.join(30)
+    assert store.get(jid).status == CANCELLED

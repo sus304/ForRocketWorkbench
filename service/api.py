@@ -173,6 +173,10 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
             "running_stall_seconds": running_stall_seconds(),
             "disk_free_bytes": du[0] if du else None,
             "disk_total_bytes": du[1] if du else None,
+            # The floor the worker enforces: below it a job is refused, and a run in progress
+            # is stopped. The UI needs it to colour the free-space reading against the same
+            # threshold the service acts on rather than one it invents.
+            "disk_floor_bytes": worker.disk_floor_bytes,
         }
 
     @app.get("/jobs", dependencies=auth)
