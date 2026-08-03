@@ -1,9 +1,28 @@
 # ForRocketWorkbench
 
-[ForRocket](https://github.com/sus304/ForRocket) ロケット飛翔シミュレータの Web フロントエンド。  
-ブラウザから設定編集・計算実行・結果確認をワンストップで行える。
+[ForRocket](https://github.com/sus304/ForRocket) ロケット飛翔シミュレータを駆動する計算サービス + Web フロントエンド。
+ブラウザからプロジェクト（設定一式）の編集・計算の投入・結果確認までを行える。
 
 単一飛行経路 / 落下エリア / モンテカルロ / 感度解析 の 4 モードをサポート。
+
+---
+
+## 構成
+
+2つのプロセスに分かれている。
+
+| プロセス | 起動コマンド | 役割 |
+|---|---|---|
+| 計算サービス | `python -m service.serve` | ジョブのキュー・実行・結果保持。HTTP API を提供する |
+| Web UI | `python app_server.py` | ブラウザ向けフロント。計算サービスの API を叩くだけで、計算状態を持たない |
+
+計算はサービスのワーカが所有する子プロセスとして走るため、**ブラウザを閉じても UI を再起動してもジョブは走り続ける**。
+ワーカは単一 FIFO で、ジョブは一度に1つずつ実行される（ソルバはメモリ帯域バウンドで、ジョブを並列に走らせても
+スループットは上がらないため）。
+
+同じ API を CLI クライアント `wb`（`cli/wb.py`）からも利用できる。ローカル1台で使う場合は両プロセスを
+ループバックで起動すればよく、計算機を別に立てる場合は UI から `WB_SERVICE_URL` でそちらを指す。構成の差は
+環境変数だけで、コードは変わらない。
 
 ---
 
@@ -14,92 +33,138 @@
 | Python | 3.10 以上 |
 | ForRocket バイナリ | v4.4.0 以上 |
 
-### Python 依存パッケージ
-
-```
-nicegui
-fastapi
-sqlalchemy
-numpy
-scipy
-pandas
-matplotlib
-tqdm
-```
-
-インストール例：
+### 依存パッケージ
 
 ```bash
-pip install nicegui fastapi sqlalchemy numpy scipy pandas matplotlib tqdm
+pipenv install --dev
 ```
+
+pipenv を使わない場合は `nicegui` / `fastapi` / `uvicorn` / `sqlalchemy` / `requests` / `numpy` / `scipy` /
+`pandas` / `matplotlib` / `simplekml` / `tqdm` / `psutil` を入れる。
 
 ---
 
 ## セットアップ
 
 1. リポジトリをクローンまたは展開する
-2. ForRocket バイナリをリポジトリルートに配置する
+2. ForRocket バイナリをリポジトリルート（または `~/ForRocket/build/`）に配置する
 
 ```
 ForRocketWorkbench/
-└── ForRocket.exe   ← ここに配置（Linux なら ForRocket）
+└── ForRocket        ← ここに配置（Windows なら ForRocket.exe）
 ```
 
-3. アプリを起動する
+3. 計算サービスを起動する
 
 ```bash
-python main.py
+WB_API_TOKEN=<任意の秘密文字列> python -m service.serve
 ```
 
-ブラウザで `http://localhost:8080` を開く。
+4. Web UI を起動する
+
+```bash
+WB_UI_PASSWORD=<ログインパスワード> WB_API_TOKEN=<上と同じ> python app_server.py
+```
+
+ブラウザで `http://127.0.0.1:8081` を開く。
+
+### 環境変数
+
+| 変数 | 既定 | 用途 |
+|---|---|---|
+| `WB_API_TOKEN` | （なし） | API のベアラトークン。**未設定では計算サービスは起動しない** |
+| `WB_BIND_HOST` | `127.0.0.1` | 計算サービスの bind アドレス |
+| `WB_PORT` | `8760` | 計算サービスのポート |
+| `WB_DATA_ROOT` | `service_data` | ジョブ台帳（SQLite）と実行ツリーの置き場所 |
+| `WB_SERVICE_URL` | `http://127.0.0.1:8760` | UI / CLI から見た計算サービスの URL |
+| `WB_UI_HOST` | `127.0.0.1` | UI の bind アドレス |
+| `WB_UI_PORT` | `8081` | UI のポート |
+| `WB_UI_PASSWORD` | （なし） | UI のログインパスワード。**未設定では UI は起動しない** |
+| `WB_UI_STORAGE_SECRET` | `WB_UI_PASSWORD` | セッション Cookie の署名鍵 |
+| `WB_RESULT_ROOTS` | （なし） | `name=path,name2=path2`。外部の解析成果物を閲覧・取り込みするルート |
+| `WB_VIEWER_DIST` | （なし） | 3D ビューアの静的バンドルのパス。設定すると same-origin で配信する |
+| `WB_EXTERNAL_3D_URL` | （なし） | 外部 3D ビューアの URL（`WB_VIEWER_DIST` 未設定時のフォールバック） |
+
+bind アドレスはループバックか tailscale インターフェースのみ許可される。`0.0.0.0` や LAN アドレスは
+起動時に拒否される（計算サービス・UI とも）。
 
 ---
 
 ## 画面構成
 
-### Dashboard (`/`)
+### Projects (`/projects`)
 
-プロジェクト一覧と計算履歴を表示する。  
-プロジェクト名をクリックすると Calculate 画面に遷移し、設定編集・計算実行ができる。
+サーバ側に置かれたプロジェクト（設定一式）の一覧。作成・複製・ZIP アップロード/ダウンロード・削除と、
+設定の編集・計算の投入を行う。
 
-### Calculate (`/calculate`)
+編集画面は各設定ファイルについて **Form タブ**（型付きフォーム）と **JSON タブ**の2つを持ち、
+**開いたままのタブが保存対象**になる。保存は全ファイルまとめて1回の PUT で行い、他所で更新されていた場合は
+競合として検出される。
 
-**設定編集**と**計算実行**を一体化した画面。
+### Jobs (`/jobs`)
 
-- **左ペイン（Config Editor）**  
-  ファイルセレクタで編集対象を切り替え。  
-  各ファイルはフォームタブ（GUI 入力）と JSON タブを切り替えて編集できる。  
-  Save ボタンでファイルに書き込む。
+ジョブのキュー。検索（model / project / memo）・モード/状態フィルタ・並び替え、モンテカルロの進捗（完了数・
+残り時間の見積り）、キャンセル、削除、**同一設定での再走**（後述）を行う。ワーカの生死・実行中ジョブ・
+ディスク残量も表示される。
 
-- **右ペイン（Run Controls、スティッキー）**  
-  モード選択・スレッド設定・ファイル状態表示・実行/キャンセルボタン・進捗表示。  
-  計算完了後は「View Results」ボタンと 3 秒後の自動遷移（「Stay here」でキャンセル可）。
+### Job detail (`/jobs/<id>`)
 
-URL パラメータ：
-- `?project=<name>` — 指定プロジェクトを初期選択
-- `?new=1` — 起動時に新規プロジェクトダイアログを開く
-
-### Result (`/result/<calc_id>`)
-
-計算結果の可視化画面。モードに応じて表示内容が変わる。
+1ジョブの詳細と結果表示。モードによって内容が変わる。
 
 | モード | 表示内容 |
 |---|---|
-| Trajectory | 飛翔サマリ（Launcher Clear / Max Q / Max Speed / Apogee / Impact）・時系列グラフ（高度・速度・マッハ・動圧・G-Load・AoA・ダウンレンジ・弾道）・Leaflet 落下点マップ |
+| Trajectory | 飛翔サマリ（Launcher Clear / Max Q / Max Speed / Apogee / Impact）・時系列グラフ（高度・速度・マッハ・動圧・G-Load・AoA・ダウンレンジ・弾道）・落下点マップ |
 | Area | 落下エリア KML ダウンロード |
-| MonteCarlo | 統計サマリ（mean / σ / ±3σ）・4パラメータのヒストグラム・NE 散布図（1σ/2σ/3σ 楕円）・Leaflet 落下点マップ（分散楕円付き） |
-| Sensitivity | トルネードチャート・感度テーブル・線形性チェック散布図（折りたたみ可） |
+| MonteCarlo | 統計サマリ（mean / σ / ±3σ）・ヒストグラム・NE 散布図（1σ/2σ/3σ 楕円）・落下点マップ（分散楕円付き） |
+| Sensitivity | トルネードチャート・感度テーブル・線形性チェック散布図 |
+
+結果は計算サービスの API 越しに読むので、UI と計算機が別ホストでも同じ画面が出る。
+
+### Results (`/results`)
+
+`WB_RESULT_ROOTS` で設定したディレクトリ配下の解析成果物を一覧し、3D ビューアで開く。単一飛行経路の結果は
+**完了ジョブとして取り込む**こともできる（元ディレクトリはコピー元として変更されない）。
 
 ### Tools
 
-- **Barrowman CP 計算器** (`/tools/barrowman`)  
-  ノーズ・ボディ・フィンのジオメトリから CP 位置を Barrowman 法で計算。
+- **Barrowman CP 計算器** (`/tools/barrowman`) — ノーズ・ボディ・フィンのジオメトリから CP 位置を計算
+- **Mass & Inertia 計算器** (`/tools/mass`) — コンポーネントごとの質量・CG・慣性モーメントから合計 CG・Iyy・Ixx を計算
+- **Hybrid Engine 計算器** (`/tools/engine`) — ハイブリッドエンジンの推力・比推力・酸化剤流量を計算
 
-- **Mass & Inertia 計算器** (`/tools/mass`)  
-  コンポーネントごとの質量・CG・慣性モーメントを入力し、合計 CG・Iyy・Ixx を計算。CG 位置ダイアグラム付き。
+---
 
-- **Hybrid Engine 計算器** (`/tools/engine`)  
-  ハイブリッドエンジンの推力・比推力・酸化剤流量を計算。
+## 同一設定での再走
+
+完了したジョブは、**まったく同じ入力**でもう一度走らせられる（Jobs 一覧と詳細の ↻ ボタン、または
+`wb rerun <id>`）。ソルバや Workbench を修正したあとに、同じケースで前後比較するための機能。
+
+- 入力は元ジョブの**実行ディレクトリからコピー**する。投入時に確定した入力そのものなので、元になった
+  プロジェクトをその後編集していても再現性は損なわれない
+- **新しいジョブとして**キューに入る。元ジョブは比較のために残る
+- 入力の内容ハッシュを記録しており、詳細画面で元ジョブとの一致を確認できる
+- 元ジョブが実行中/待機中の場合、入力がディスク上に無い場合、取り込みジョブ（結果のコピーだけを持ち、
+  それを生んだ入力を持たない）の場合は再走できない
+
+> **モンテカルロの注意**: 誤差パラメータは再サンプルされるため、同じ設定でも**母集団が変わる**。
+> 比較できるのは統計量であって、ケース単位の差分ではない。他の3モードは入力が同じなら決定論的。
+
+---
+
+## バージョン情報
+
+バージョンの正本は `version.py`（`__version__`）。実行時は git の情報を足した
+`2.1.0+111.gb246ef1` 形式の文字列を使う（`.dirty` が付く場合は未コミットの変更がある）。
+
+```bash
+python -m cli.wb --version
+python runner.py -v
+python post.py -v
+curl http://127.0.0.1:8760/health     # workbench_version を含む。認証不要
+```
+
+各ジョブには投入時の Workbench バージョンと、実行に使われた ForRocket バイナリのバージョンが記録され、
+ジョブ詳細に表示される。UI と計算サービスのバージョンが食い違っている場合（片方だけ再起動された場合など）は
+ヘッダーに警告が出る。
 
 ---
 
@@ -244,7 +309,7 @@ URL パラメータ：
 | `Reference Height [m]` | 参照風速の計測高度 |
 | 風速・風向の Limit / Step | 格子の範囲と刻み幅 |
 
-ケース数 = 風速ステップ数 × 風向ステップ数。Calculate 画面のフォームでリアルタイム表示される。
+ケース数 = 風速ステップ数 × 風向ステップ数。設定エディタのフォームでリアルタイム表示される。
 
 ---
 
@@ -322,7 +387,7 @@ URL パラメータ：
 | `Variations` | 名目値からの変化量リスト（正負両側を推奨） |
 | `Reference Variations` | `two_point` 時の差分計算に使う `[lo, hi]`（省略時は Variations の最小/最大） |
 
-結果画面には以下が表示される：
+ジョブ詳細の結果表示には以下が含まれる：
 - **トルネードチャート** — 各パラメータの頂点高度影響度を降順表示
 - **感度テーブル** — 感度係数 [m/unit] と [m/%]、各高度値
 - **線形性チェック（折りたたみ）** — 全解析点の散布図と線形傾きの比較。Reference Variations（オレンジ◆）、通常点（青●）、ノミナル（緑▲）で色分け。X・Y 軸はノミナル値を中心に対称表示。
@@ -333,45 +398,51 @@ URL パラメータ：
 
 ```
 ForRocketWorkbench/
-├── main.py                     # エントリポイント（NiceGUI アプリ起動）
-├── runner.py                   # 計算実行ラッパー
-├── post.py                     # 後処理ラッパー
-├── projects/                   # プロジェクトディレクトリ
-│   └── <project_name>/
-│       ├── config_solver.json
-│       ├── param_list_stage1.json
-│       ├── param_rocket.json
-│       ├── param_engine.json
-│       ├── sequence_of_event.json
-│       ├── config_area.json        # Area モード
-│       ├── config_montecarlo.json  # MonteCarlo モード
-│       └── config_sensitivity.json # Sensitivity モード
+├── version.py                  # バージョンの正本
+├── app_server.py               # Web UI（NiceGUI）のエントリポイント
+├── runner.py                   # 計算実行ラッパー（CLI）
+├── post.py                     # 後処理ラッパー（CLI）
+├── service/                    # 計算サービス
+│   ├── serve.py                # エントリポイント・bind 制限・多重起動ロック
+│   ├── api.py                  # HTTP API（FastAPI）
+│   ├── worker.py               # 単一 FIFO ワーカ。runner/post を子プロセスで実行
+│   ├── store.py                # ジョブ台帳（SQLite）
+│   ├── rerun.py                # 同一入力での再走
+│   ├── imports.py              # 外部の結果ディレクトリの取り込み
+│   ├── projects.py             # サーバ側プロジェクトの CRUD
+│   ├── uploads.py              # 入力クロージャの生成・検証付き展開・内容ハッシュ
+│   ├── results.py / plots.py   # 結果の読み出しと作図（API 用）
+│   └── client.py               # HTTP クライアント（UI・CLI が共用）
+├── cli/wb.py                   # CLI クライアント
 ├── web/
-│   ├── pages/
-│   │   ├── shared.py           # ヘッダ・バッジ共通部品
-│   │   ├── dashboard.py        # Dashboard ページ
-│   │   ├── calculate.py        # Calculate ページ（設定編集 + 計算実行）
-│   │   ├── result.py           # Result ページ
-│   │   ├── tools_barrowman.py  # Barrowman CP 計算器
-│   │   ├── tools_mass.py       # Mass & Inertia 計算器
-│   │   └── tools_engine.py     # Hybrid Engine 計算器
-│   ├── services/
-│   │   ├── calc_service.py     # 計算ジョブ管理（スレッド・DB）
-│   │   └── project_service.py  # プロジェクトディレクトリ・JSON IO
-│   ├── db/
-│   │   ├── database.py         # SQLAlchemy セッション管理
-│   │   └── models.py           # Project / Calculation モデル
-│   └── tools/
-│       ├── barrowman.py        # Barrowman 計算ロジック
-│       └── mass_budget.py      # 質量・慣性計算ロジック
+│   ├── service_ui/             # サービス UI のページ群
+│   │   ├── pages.py            # /jobs, /jobs/<id>, /results, 3D ビューア
+│   │   ├── projects_ui.py      # /projects と設定エディタ
+│   │   ├── config_forms.py     # 設定ファイルごとの型付きフォーム
+│   │   ├── render.py           # 結果の描画
+│   │   └── layout.py / theme.py / auth.py / config.py
+│   ├── pages/                  # 計算に依存しないツール類
+│   │   └── tools_barrowman.py / tools_mass.py / tools_engine.py
+│   └── tools/                  # ツールの計算ロジック
 ├── runner_tool/                # 各モードのランナー
 ├── post_tool/                  # 各モードの後処理
+├── projects/                   # プロジェクトディレクトリ
+│   └── example/                # サンプル（テストが依存する）
 └── tests/                      # pytest テストスイート
-    ├── conftest.py
-    ├── test_calc_service.py
-    ├── test_db_models.py
-    ├── test_form_builders.py   # フォームビルダー入出力テスト
-    └── test_project_service.py
+```
+
+プロジェクト1つは以下の設定ファイルからなる。
+
+```
+projects/<project_name>/
+├── config_solver.json
+├── param_list_stage1.json
+├── param_rocket.json
+├── param_engine.json
+├── sequence_of_event.json
+├── config_area.json          # Area モード
+├── config_montecarlo.json    # MonteCarlo モード
+└── config_sensitivity.json   # Sensitivity モード
 ```
 
 ---
@@ -379,17 +450,33 @@ ForRocketWorkbench/
 ## テスト
 
 ```bash
-python -m pytest tests/ -v
+pipenv run pytest tests/
 ```
 
-テストはインメモリ SQLite を使用するため外部リソース不要。  
-`test_form_builders.py` は NiceGUI の UI 要素をスタブに差し替え、全フォームビルダーの入出力ラウンドトリップを検証する。
+ForRocket バイナリを必要とするテストは、バイナリが無ければ自動的にスキップされる。それ以外は外部リソース
+不要で走る。テストはバージョン管理下のサンプルプロジェクト `projects/example` のみに依存する。
 
 ---
 
-## CLI から直接実行する場合
+## CLI から使う場合
 
-Web UI を使わず CLI で実行する場合は以下の通り。
+### 計算サービス経由（`wb`）
+
+```bash
+export WB_SERVICE_URL=http://127.0.0.1:8760
+export WB_API_TOKEN=<トークン>
+
+python -m cli.wb submit <project_dir> <mode> [--model M] [--max-thread]
+python -m cli.wb list [--status STATUS]
+python -m cli.wb status <job_id>
+python -m cli.wb rerun <job_id> [--memo M]      # 同じ入力で再走
+python -m cli.wb cancel <job_id>
+python -m cli.wb pull <job_id> <dest> [--full]  # 結果を取得（--full で全ケースログ込み）
+```
+
+### ランナーを直接叩く場合
+
+サービスを介さず単体で回す場合は以下の通り。
 
 ```bash
 cd projects/<project_name>
@@ -410,4 +497,11 @@ python ../../post.py -m work_montecarlo/<work_dir>
 python ../../runner.py -s config_solver.json -e config_sensitivity.json [-X]
 ```
 
-`-X` を付けると CPU スレッドを最大利用して並列化（Area / MonteCarlo / Sensitivity）。
+`-X` を付けると論理コア数（SMT 込み）で並列化する（Area / MonteCarlo / Sensitivity）。既定は物理コア数で、
+ソルバがメモリ帯域バウンドのため通常はこちらの方が速い。
+
+中断されたモンテカルロは、実行ディレクトリを指定して再開できる。
+
+```bash
+python ../../runner.py -s config_solver.json -m config_montecarlo.json -r work_montecarlo/<work_dir>
+```
