@@ -751,10 +751,16 @@ def _build_montecarlo_form(data: dict, container) -> Callable[[], dict]:
                     ui.label(key).style('min-width:210px').classes('text-caption')
                     if is_wind:
                         els['zip_path'] = (
-                            ui.input('winds.zip path', value=p.get('Wind Files Zip Path', ''))
+                            ui.input('wind files .zip path', value=p.get('Wind Files Zip Path', ''))
                             .style('min-width:240px').props('dense outlined')
                             .bind_visibility_from(els['enable'], 'value')
                         )
+                        # The old 'winds.zip path' label read as a required filename. Any name
+                        # works, and so does any layout inside the zip (the runner discovers the
+                        # CSVs); it just has to be a file in this project.
+                        els['zip_path'].tooltip(
+                            'プロジェクト内の zip をプロジェクト相対パスで指定（例: wind.zip）。'
+                            'zip 名・中のフォルダ構成は自由（CSV 直置きでも可）')
                     else:
                         els['unit'] = (ui.input(value=p.get('Error Unit', default_unit or '%'))
                                        .style('width:52px').props('dense outlined'))

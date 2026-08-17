@@ -328,6 +328,57 @@ class MontecarloCaseConfig:
         self.solver_config_file_name = case_solver_config_file_name
 
 
+_WINDS_STAGE_DIR = 'winds'
+_WIND_JUNK_NAMES = {'.ds_store', 'thumbs.db', 'desktop.ini'}
+
+
+def _stage_wind_files(zipfile_path, work_dir):
+    """Unpack the Monte Carlo wind files zip into work_dir/winds/ and return
+    (directory name, dispersion wind file basenames).
+
+    The zip's internal layout is not assumed. Its files may sit at the top level, inside one
+    wrapper folder, or nested deeper, and no folder inside it has to be named after the zip.
+    The directory used to be derived from the zip's own basename, which turned any other
+    layout into "FileNotFoundError: <work_dir>/<zip stem>" at the start of the run — including
+    every zip service.uploads bundles in under its own fixed name.
+
+    Everything found is flattened into one staging directory because each case's wind is copied
+    into cases/ by basename; a basename that repeats across subfolders gets a numeric suffix.
+    """
+    stage = os.path.join(work_dir, _WINDS_STAGE_DIR)
+    unpacked = os.path.join(work_dir, '.winds_unpack')
+    shutil.unpack_archive(zipfile_path, unpacked)
+
+    found = []
+    for root, dirs, files in sorted(os.walk(unpacked)):
+        dirs[:] = sorted(d for d in dirs if d != '__MACOSX' and not d.startswith('.'))
+        for f in sorted(files):
+            if f.startswith('.') or f.lower() in _WIND_JUNK_NAMES:
+                continue
+            found.append(os.path.join(root, f))
+    # A zip of wind CSVs often carries a memo or readme next to them, and those are not wind
+    # files. Filter only when at least one CSV is present, so a population saved with another
+    # extension still runs instead of being silently dropped.
+    csvs = [p for p in found if p.lower().endswith('.csv')]
+    sources = csvs or found
+    if not sources:
+        raise FileNotFoundError(f'no wind files found in {zipfile_path}')
+
+    os.mkdir(stage)
+    wind_files = []
+    for src in sources:
+        stem, ext = os.path.splitext(os.path.basename(src))
+        dest_name = stem + ext
+        n = 1
+        while os.path.exists(os.path.join(stage, dest_name)):
+            dest_name = f'{stem}_{n}{ext}'
+            n += 1
+        shutil.move(src, os.path.join(stage, dest_name))
+        wind_files.append(dest_name)
+    shutil.rmtree(unpacked, ignore_errors=True)
+    return _WINDS_STAGE_DIR, wind_files
+
+
 def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_name, max_thread_run=False,
                    stop_event=None, work_dir=None):
     # work_dir may be pre-created by the compute service so it knows (and persists) the run's
@@ -366,9 +417,7 @@ def run_montecarlo(solver_config_json_file_name, montecarlo_config_json_file_nam
             raise ValueError('Wind Files Zip Path is empty')
         if not os.path.exists(zipfile_path):
             raise FileNotFoundError(zipfile_path)
-        shutil.unpack_archive(zipfile_path, work_dir+'/')
-        winds_dir = os.path.splitext(os.path.basename(zipfile_path))[0]
-        wind_files = os.listdir(work_dir+'/'+winds_dir)
+        winds_dir, wind_files = _stage_wind_files(zipfile_path, work_dir)
         if case_count > len(wind_files):
             extra_files = []
             for i in range(case_count - len(wind_files)):
