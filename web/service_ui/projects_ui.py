@@ -305,10 +305,71 @@ _FILE_LABELS = {
 }
 
 
-def _ordered_files(files: dict) -> list:
+def _ordered_files(files) -> list:
+    """Runner order first, then anything else. Takes any collection of filenames (the config dict
+    from the API, or a plain list of candidate names)."""
     known = [f for f in _FILE_ORDER if f in files]
     extra = [f for f in files if f not in _FILE_ORDER]
     return known + extra
+
+
+def _add_template_dialog(name: str, present, save) -> None:
+    """Add a sample-valued base config the project doesn't have yet (e.g. a project assembled by
+    hand that never got a config_montecarlo.json). Only the missing files are offered; the server
+    refuses to overwrite anything either way.
+
+    The editor holds every file's state in memory against one etag, and adding a file server-side
+    moves that etag — so we save what's on screen first (same as Save & Submit does) and reload the
+    page afterwards, rather than leaving the open editor stale and its next save conflicted."""
+    try:
+        templates = _client().list_config_templates()
+    except Exception as exc:
+        _fail('Load base files', exc)
+        return
+    missing = _ordered_files([t for t in templates if t not in present])
+
+    with ui.dialog() as dlg, ui.card().style('min-width:420px; max-width:92vw'):
+        ui.label('ベースファイルを追加').classes('text-subtitle1')
+        ui.label('サンプル値が入った config を追加します。既存ファイルは上書きしません。') \
+            .classes('text-caption text-grey')
+        if not missing:
+            ui.label('追加できるファイルはありません（config は揃っています）。') \
+                .classes('q-my-md')
+            ui.button('Close', on_click=dlg.close).props('flat')
+            dlg.open()
+            return
+
+        ui.label('編集中の内容は保存してから追加し、ページを再読み込みします。') \
+            .classes('text-caption text-grey q-mb-sm')
+        boxes = {}
+        with ui.column().classes('q-gutter-none'):
+            for f in missing:
+                boxes[f] = ui.checkbox(f'{_FILE_LABELS.get(f, f)}  ({f})')
+
+        def _do():
+            picked = [f for f, b in boxes.items() if b.value]
+            if not picked:
+                notify('追加するファイルを選択してください。', type='warning')
+                return
+            if not save():          # saving failed -> don't move the etag under an unsaved editor
+                return
+            added = []
+            for f in picked:
+                try:
+                    _client().add_config_template(name, f)
+                    added.append(f)
+                except Exception as exc:
+                    _fail(f'Add {f}', exc)
+                    break
+            dlg.close()
+            if added:
+                notify('追加しました: ' + ', '.join(added), type='positive')
+                ui.navigate.to(f'/projects/{name}/edit')
+
+        with ui.row().classes('q-mt-sm'):
+            ui.button('Add', on_click=_do).props('color=primary')
+            ui.button('Cancel', on_click=dlg.close).props('flat')
+    dlg.open()
 
 
 def _generic_form(content, container) -> 'callable':
@@ -638,6 +699,10 @@ def project_edit_page(name: str):
                                      (' wb-selected' if active else ''))
 
                 nav()
+                # Fill a gap in a hand-assembled project without re-uploading a ZIP.
+                ui.button('ベースファイル追加', icon='add',
+                          on_click=lambda: _add_template_dialog(name, set(files), _do_save)) \
+                    .props('flat no-caps align=left dense').classes('w-full justify-start')
                 ui.separator().classes('q-my-sm')
                 ui.button('Save all', icon='save', on_click=lambda: _save()) \
                     .props('color=primary').classes('w-full')

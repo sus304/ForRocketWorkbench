@@ -374,6 +374,59 @@ def delete_file(data_root, name: str, relpath: str) -> None:
     target.unlink()
 
 
+# ── config templates (sample-valued base files) ─────────────────────────────────
+# A project created empty (or hand-assembled from the few configs the user happened to have) is
+# missing the ones they never wrote by hand — typically config_montecarlo.json. Instead of making
+# them start from a blank file, the editor can drop in the sample-valued base config from the
+# version-controlled example project: the same set the runner and the typed forms are written
+# against, so it follows the solver schema without a second copy to keep in sync.
+
+def template_dir() -> Path:
+    override = os.environ.get("WB_TEMPLATE_DIR", "").strip()
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parent.parent / "projects" / "example"
+
+
+def list_templates() -> List[str]:
+    """Config filenames available as base files. JSON only — thrust/wind/aero CSVs are project
+    data, not boilerplate, and are managed through the file manager instead."""
+    d = template_dir()
+    if not d.is_dir():
+        return []
+    return sorted(f.name for f in d.glob("*.json") if f.is_file() and not f.is_symlink())
+
+
+def add_template(data_root, name: str, filename: str) -> dict:
+    """Copy a sample-valued base config into the project.
+
+    Never overwrites (409 if the file is already there): the button exists to fill a gap, and
+    replacing an edited config with sample values would silently destroy work. The create is
+    O_EXCL so a concurrent add cannot slip past the check."""
+    p = project_dir(data_root, name)
+    if not p.is_dir():
+        raise ProjectNotFound(f"project not found: {name}")
+    if filename not in list_templates():
+        raise ProjectError(f"unknown config template: {filename!r}")
+    target = _resolve_within(p, filename)
+    data = (template_dir() / filename).read_bytes()
+    # The template ships with the repo, but it is still config entering the trusted store — hold it
+    # to the same parse + project-relative path rules as an upload (review N-6/R-A).
+    try:
+        parsed = json.loads(data.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as e:
+        raise ProjectError(f"invalid config template {filename}: {e}")
+    for _k, val in _iter_path_values(parsed):
+        _check_relative(val)
+    try:
+        fd = os.open(str(target), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        raise ProjectExists(f"file already exists: {filename}")
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
+    return {"file": filename, "etag": _etag(p)}
+
+
 def referenced_files(data_root, name: str) -> List[str]:
     """Every project-relative path a config references (thrust/wind/aero files). Used by the editor
     to flag references whose target file is missing."""

@@ -10,6 +10,7 @@ import re
 
 from web.service_ui.projects_ui import (
     _sanitize_name, _upload_filename, _read_upload, _csv_to_table, _file_chart_opts,
+    _ordered_files,
 )
 
 _NAME_OK = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -128,3 +129,13 @@ def test_file_chart_opts_plots_each_numeric_series():
 def test_file_chart_opts_none_when_not_numeric():
     cols, rows = _csv_to_table("name,note\napple,red\nsky,blue")
     assert _file_chart_opts(cols, rows) is None
+
+
+def test_ordered_files_accepts_a_plain_name_list():
+    """The 'add base file' dialog orders the *missing* templates (a list) with the same helper the
+    editor uses for the config dict, so both listings read in runner order."""
+    missing = ["config_sensitivity.json", "param_rocket.json", "zz_custom.json"]
+    assert _ordered_files(missing) == ["param_rocket.json", "config_sensitivity.json",
+                                       "zz_custom.json"]
+    assert _ordered_files({"config_area.json": {}, "config_solver.json": {}}) == \
+        ["config_solver.json", "config_area.json"]

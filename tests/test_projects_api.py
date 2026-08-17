@@ -51,6 +51,21 @@ def _proj_files():
             "wind.csv": "t\n0\n"}
 
 
+def test_config_template_listing_and_add(sc):
+    """A project missing a config gets it as a sample-valued base file; a second add is refused
+    (409) so an edited config is never replaced by sample values."""
+    sc.upload_project("rk", _zip(_proj_files()))
+    templates = sc.list_config_templates()
+    assert "config_montecarlo.json" in templates
+    sc.add_config_template("rk", "config_montecarlo.json")
+    cfg = sc.get_project_config("rk")
+    assert cfg["files"]["config_montecarlo.json"]["MonteCarlo Case Count"] > 0
+    with pytest.raises(ValueError):
+        sc.add_config_template("rk", "config_montecarlo.json")
+    with pytest.raises(ValueError):
+        sc.add_config_template("rk", "wind.csv")
+
+
 def test_projects_crud_and_config(sc):
     sc.upload_project("rk", _zip(_proj_files()))
     assert "rk" in [p["name"] for p in sc.list_projects()]

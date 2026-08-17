@@ -173,6 +173,22 @@ class ServiceClient:
         r.raise_for_status()
         return r.content
 
+    def list_config_templates(self) -> list:
+        """Filenames of the sample-valued base configs available to add to a project."""
+        r = self.s.get(self._url("/projects/templates"), headers=self.headers)
+        r.raise_for_status()
+        return r.json()["templates"]
+
+    def add_config_template(self, name: str, file: str) -> dict:
+        r = self.s.post(self._url(f"/projects/{name}/templates"), headers=self.headers,
+                        data={"file": file})
+        if r.status_code in (409, 422):
+            # "already exists" / "unknown template" is the interesting part — a bare HTTPError
+            # would show only the status code in the browser toast.
+            raise ValueError(r.json().get("detail", f"cannot add {file}"))
+        r.raise_for_status()
+        return r.json()
+
     def list_project_files(self, name: str) -> dict:
         """{'files': [{path,size,is_config}], 'referenced': [path,...]} for the project's input
         files (config values are edited via get/put_project_config)."""

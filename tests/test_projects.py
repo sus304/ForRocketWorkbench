@@ -187,3 +187,57 @@ def test_file_ops_missing_project(tmp_path):
         pj.list_files(tmp_path, "nope")
     with pytest.raises(pj.ProjectNotFound):
         pj.write_file(tmp_path, "nope", "a.csv", b"x")
+
+
+# ── config templates (sample-valued base files) ──────────────────────────────────
+
+def test_templates_come_from_the_example_project():
+    """The shipped example project is the template source, so the base files stay in step with the
+    solver schema without a second copy to maintain."""
+    names = pj.list_templates()
+    assert "config_montecarlo.json" in names
+    assert "config_solver.json" in names
+    assert all(n.endswith(".json") for n in names)   # data CSVs are not boilerplate
+
+
+def test_add_template_fills_a_missing_config(tmp_path):
+    pj.create_project(tmp_path, "rk")
+    res = pj.add_template(tmp_path, "rk", "config_montecarlo.json")
+    assert res["file"] == "config_montecarlo.json"
+    cfg = pj.read_config(tmp_path, "rk")
+    assert cfg["files"]["config_montecarlo.json"]["MonteCarlo Case Count"] > 0
+    assert cfg["etag"] == res["etag"]
+
+
+def test_add_template_never_overwrites(tmp_path):
+    _project(tmp_path)
+    before = pj.read_config(tmp_path, "rk")["files"]["config_solver.json"]
+    with pytest.raises(pj.ProjectExists):
+        pj.add_template(tmp_path, "rk", "config_solver.json")
+    assert pj.read_config(tmp_path, "rk")["files"]["config_solver.json"] == before
+
+
+def test_add_template_rejects_unknown_and_escaping_names(tmp_path):
+    pj.create_project(tmp_path, "rk")
+    for bad in ("nope.json", "wind.csv", "../evil.json", "/etc/passwd"):
+        with pytest.raises(pj.ProjectError):
+            pj.add_template(tmp_path, "rk", bad)
+
+
+def test_add_template_missing_project(tmp_path):
+    with pytest.raises(pj.ProjectNotFound):
+        pj.add_template(tmp_path, "nope", "config_solver.json")
+
+
+def test_add_template_rejects_absolute_path_in_template(tmp_path, monkeypatch):
+    """A template is still config entering the trusted store: an absolute wind path in it must be
+    refused exactly like an upload would be."""
+    tpl = tmp_path / "tpl"
+    tpl.mkdir()
+    (tpl / "config_solver.json").write_text(
+        json.dumps({"Wind Condition": {"Wind File Path": "/etc/wind.csv"}}))
+    monkeypatch.setenv("WB_TEMPLATE_DIR", str(tpl))
+    pj.create_project(tmp_path, "rk")
+    with pytest.raises(pj.ProjectError):
+        pj.add_template(tmp_path, "rk", "config_solver.json")
+    assert not (Path(tmp_path) / "projects" / "rk" / "config_solver.json").exists()

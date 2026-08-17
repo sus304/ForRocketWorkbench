@@ -477,6 +477,18 @@ def create_app(store: JobStore, worker: Worker, token: str) -> FastAPI:
             raise project_error(e)
         return {"name": name}
 
+    @app.get("/projects/templates", dependencies=auth)
+    def list_config_templates():
+        """Sample-valued base configs the editor can drop into a project that is missing one."""
+        return {"templates": projects.list_templates()}
+
+    @app.post("/projects/{name}/templates", dependencies=auth)
+    def add_config_template(name: str, file: str = Form(...)):
+        try:
+            return projects.add_template(data_root, name, file)
+        except ProjectError as e:
+            raise project_error(e)
+
     @app.post("/projects/{name}/copy", dependencies=auth)
     def copy_project(name: str, dest: str = Form(...)):
         try:
