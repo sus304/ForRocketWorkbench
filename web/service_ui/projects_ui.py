@@ -180,7 +180,9 @@ def projects_page():
                     try:
                         data = await _read_upload(e)
                         if not data:
-                            _fail('Upload', ValueError('uploaded file was empty or unreadable'))
+                            _fail('Upload', ValueError(
+                                'アップロードされたファイルが空か、読み取れませんでした。'
+                                '.zip ファイルを選び直してください。'))
                             return
                         await _upload_to_store(_client().upload_project, name, data)
                         _log(f"stored project {name!r} ({len(data)} bytes)")

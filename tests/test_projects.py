@@ -88,6 +88,33 @@ def test_upload_rejects_traversal_in_config_path(tmp_path):
         pj.upload_project(tmp_path, "rk", _zip(files))
 
 
+def test_upload_rejection_names_the_top_level_entries(tmp_path):
+    # A single stray file at the top level (readme.txt, .DS_Store, …) defeats the single-wrapper
+    # descent, and the user cannot guess that from "config_solver.json not found" alone. The
+    # message must name what the zip actually had at its top level.
+    files = _valid_project_files()
+    blob = _zip(dict(_zip_entries(files, prefix="rk/"), **{"readme.txt": "x"}))
+    with pytest.raises(pj.ProjectError) as e:
+        pj.upload_project(tmp_path, "rk", blob)
+    msg = str(e.value)
+    assert "config_solver.json" in msg
+    assert "readme.txt" in msg and "rk/" in msg      # the stray file AND the wrapper dir
+
+
+def test_upload_size_rejection_points_at_work_dirs(tmp_path):
+    # The usual cause of the entry/size caps is zipping a project together with its work_****
+    # outputs, so the limit message has to say which folders to leave out.
+    files = dict(_valid_project_files())
+    files.update({f"work_20260101_0000/case{i}.csv": "x" for i in range(pj.MAX_UNZIP_ENTRIES)})
+    with pytest.raises(pj.ProjectError) as e:
+        pj.upload_project(tmp_path, "rk", _zip(files))
+    assert "work_" in str(e.value)
+
+
+def _zip_entries(files: dict, prefix: str) -> dict:
+    return {prefix + name: content for name, content in files.items()}
+
+
 def test_upload_atomic_keeps_old_on_bad_update(tmp_path):
     pj.upload_project(tmp_path, "rk", _zip(_valid_project_files()))
     bad = _valid_project_files()

@@ -88,7 +88,10 @@ def _check_relative(value: str) -> None:
         return
     v = value.replace("\\", "/")
     if os.path.isabs(value) or v.startswith("/") or ".." in Path(v).parts or v.startswith("~"):
-        raise ProjectError(f"config path must be inside the project (relative): {value!r}")
+        raise ProjectError(
+            f"config のパス {value!r} がプロジェクトの外を指しています。"
+            "ファイルをプロジェクトフォルダの中に置き、"
+            "プロジェクトフォルダからの相対パス（例: wind.csv）で指定してください。")
 
 
 def validate_project_paths(proj: Path) -> None:
@@ -96,7 +99,9 @@ def validate_project_paths(proj: Path) -> None:
     Also reject symlinks anywhere in the tree (escape via link)."""
     for f in proj.rglob("*"):
         if f.is_symlink():
-            raise ProjectError(f"symlink not allowed in project: {f.name}")
+            raise ProjectError(
+                f"シンボリックリンク {f.name} は使えません。"
+                "リンクではなく実体のファイルをプロジェクトフォルダに置いてください。")
     for jf in sorted(proj.glob("*.json")):
         try:
             data = json.loads(jf.read_text())
@@ -115,10 +120,13 @@ def safe_unzip(zip_bytes: bytes, dest: Path) -> None:
     try:
         zf = zipfile.ZipFile(__import__("io").BytesIO(zip_bytes))
     except zipfile.BadZipFile as e:
-        raise ProjectError(f"not a valid zip: {e}")
+        raise ProjectError(f"zip ファイルとして読めません（{e}）。"
+                           "壊れていないか、.zip 形式で圧縮されているか確認してください。")
     infos = zf.infolist()
     if len(infos) > MAX_UNZIP_ENTRIES:
-        raise ProjectError(f"too many entries ({len(infos)} > {MAX_UNZIP_ENTRIES})")
+        raise ProjectError(
+            f"zip 内のファイル数が多すぎます（{len(infos)} 個 > 上限 {MAX_UNZIP_ENTRIES} 個）。"
+            "計算結果の work_**** フォルダを除いて、config と入力データだけを圧縮してください。")
     total = 0
     for info in infos:
         name = info.filename
@@ -127,13 +135,19 @@ def safe_unzip(zip_bytes: bytes, dest: Path) -> None:
         # Zip Slip: normalised path must stay under dest.
         target = (dest / name).resolve()
         if dest.resolve() != target and dest.resolve() not in target.parents:
-            raise ProjectError(f"zip entry escapes destination: {name}")
+            raise ProjectError(
+                f"zip 内の {name} がプロジェクトフォルダの外を指しています。"
+                "プロジェクトフォルダを右クリックしてそのまま圧縮した zip を使ってください。")
         # symlink members (Unix mode in external_attr high bits, S_IFLNK=0xA000)
         if (info.external_attr >> 16) & 0o170000 == 0o120000:
-            raise ProjectError(f"symlink in zip not allowed: {name}")
+            raise ProjectError(
+                f"zip 内の {name} はシンボリックリンクです。"
+                "リンクではなく実体のファイルを含めて圧縮し直してください。")
         total += info.file_size
         if total > MAX_UNZIP_BYTES:
-            raise ProjectError(f"uncompressed size exceeds {MAX_UNZIP_BYTES} bytes")
+            raise ProjectError(
+                f"zip の展開後サイズが上限 {MAX_UNZIP_BYTES // 1024 ** 2} MB を超えます。"
+                "計算結果の work_**** フォルダを除いて、config と入力データだけを圧縮してください。")
     for info in infos:
         if info.filename.endswith("/"):
             continue
@@ -141,6 +155,20 @@ def safe_unzip(zip_bytes: bytes, dest: Path) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         with zf.open(info) as src, open(target, "wb") as out:
             shutil.copyfileobj(src, out, length=1 << 20)
+
+
+def _top_level_summary(d: Path, limit: int = 8) -> str:
+    """What the zip actually had at its top level, for the 'config_solver.json not found' error.
+    A stray top-level file (readme.txt, .DS_Store) is what usually defeats _descend_single_top,
+    and the user cannot guess that from the rejection alone — so name the entries."""
+    try:
+        names = sorted(e.name + ("/" if e.is_dir() else "") for e in d.iterdir())
+    except OSError:
+        return "（読み取れませんでした）"
+    if not names:
+        return "（空）"
+    shown = ", ".join(names[:limit])
+    return shown if len(names) <= limit else f"{shown} … 他 {len(names) - limit} 件"
 
 
 def _descend_single_top(d: Path) -> Path:
@@ -245,7 +273,12 @@ def upload_project(data_root, name: str, zip_bytes: bytes) -> Path:
         content = _descend_single_top(staging)
         validate_project_paths(content)
         if not (content / "config_solver.json").exists():
-            raise ProjectError("upload missing config_solver.json at project root")
+            raise ProjectError(
+                "zip の中に config_solver.json が見つかりません。"
+                "config_solver.json は zip の直下か、zip 直下の 1 つのフォルダの直下にある必要があります"
+                f"（今回の zip の直下: {_top_level_summary(staging)}）。"
+                "プロジェクトフォルダだけを選んで圧縮し直してください"
+                "（フォルダの入れ子や、他のファイルの同梱があると読み取れません）。")
         # atomic swap
         backup = None
         if dest.exists():

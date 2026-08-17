@@ -101,6 +101,28 @@ def test_upload_absolute_path_rejected_422(sc):
         sc.upload_project("rk", _zip(files))
 
 
+def test_upload_rejection_detail_reaches_the_client(sc):
+    # The rejection reason must survive the HTTP hop: a bare raise_for_status would leave the
+    # browser toast showing only "422 Unprocessable Entity", which is what made a failed upload
+    # undiagnosable.
+    files = _proj_files()
+    files["config_solver.json"] = json.dumps({"Wind Condition": {"Wind File Path": "/etc/passwd"}})
+    with pytest.raises(ValueError) as e:
+        sc.upload_project("rk", _zip(files))
+    assert "/etc/passwd" in str(e.value)
+    assert "422" not in str(e.value)
+
+
+def test_upload_error_falls_back_when_body_is_not_json():
+    from service.client import _detail
+
+    class _R:
+        def json(self):
+            raise ValueError("not json")
+
+    assert _detail(_R(), "アップロードできませんでした") == "アップロードできませんでした"
+
+
 def _zip_dir(d):
     import os
     buf = io.BytesIO()

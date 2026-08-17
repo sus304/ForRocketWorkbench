@@ -18,6 +18,18 @@ except Exception:  # pragma: no cover
     requests = None
 
 
+def _detail(response, fallback: str) -> str:
+    """The API's error `detail` string, or `fallback` when the body is not the expected JSON
+    (proxy error page, empty body). Never raises — it is only used to build an error message."""
+    try:
+        detail = response.json().get("detail")
+    except Exception:
+        return fallback
+    if isinstance(detail, str) and detail:
+        return detail
+    return fallback if detail is None else f"{fallback}: {detail}"
+
+
 class ServiceClient:
     def __init__(self, base_url: str, token: str, session=None):
         self.base = base_url.rstrip("/")
@@ -165,6 +177,11 @@ class ServiceClient:
     def upload_project(self, name: str, zip_bytes: bytes) -> dict:
         r = self.s.post(self._url(f"/projects/{name}/upload"), headers=self.headers,
                         files={"payload": ("project.zip", zip_bytes, "application/zip")})
+        if 400 <= r.status_code < 500:
+            # The rejection reason (which file / what to fix) lives in the JSON detail; a bare
+            # raise_for_status would show only "422 Unprocessable Entity" in the browser toast,
+            # leaving the user with no way to tell a stray top-level file from a size limit.
+            raise ValueError(_detail(r, "アップロードできませんでした"))
         r.raise_for_status()
         return r.json()
 
