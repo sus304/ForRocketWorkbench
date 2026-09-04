@@ -18,6 +18,7 @@ is meaningful); case_metrics.csv exists only in stats-only mode where per-case l
 from __future__ import annotations
 
 import glob
+import logging
 import math
 import os
 from pathlib import Path
@@ -25,6 +26,10 @@ from typing import List, Optional
 
 import numpy as np
 import pandas as pd
+
+from post_tool import post_ellipse
+
+_log = logging.getLogger(__name__)
 
 # Extract limits (design §4.2). Provisional; requests over these get 422 at the API layer.
 MAX_CASES = 20
@@ -481,52 +486,45 @@ def _decimate(df: pd.DataFrame, max_points: int) -> pd.DataFrame:
 
 # ── impact dispersion ellipses (shared by the UI's echarts render and the plots API) ────
 
-# nσ ellipse convention: semi-axes = nσ·√λ of the impact covariance. The 2-D containment of an
-# nσ ellipse is NOT the 1-D 68/95/99.7% (it is ~39/86/99% for 1/2/3σ); callers must label the
-# convention rather than imply 1-D probabilities (design §5 / review Y7).
-def compute_impact_ellipses(lat_list: list, lon_list: list):
-    """Compute 1σ/2σ/3σ impact ellipses in both NE and lat/lon coordinates.
+# The ellipse maths live in post_tool.post_ellipse — one implementation for the KML written by
+# the post-processing tools and for what the service draws, so the two cannot drift (they used
+# to: this module approximated the Earth as a sphere while post_ellipse used WGS84).
+#
+# k-ellipse convention: semi-axes = k·√λ of the impact covariance. The 2-D containment of a
+# k-ellipse is NOT the 1-D 68/95/99.7% (it is 39.35/86.47/98.89% for k=1/2/3); callers must
+# label k *and* its containment rather than imply 1-D probabilities (design §5 / review Y7).
+ELLIPSE_K_LEVELS = ((1.0, '#4caf50'), (2.0, '#ff9800'), (3.0, '#f44336'))
 
-    Returns east, north arrays [m], mean_lat, mean_lon,
-    ne_ellipses [(nsig, color, [[e,n],...])],
-    ll_ellipses [(nsig, color, [[lat,lon],...])].
+
+def compute_impact_ellipses(lat_list: list, lon_list: list, k_levels=ELLIPSE_K_LEVELS):
+    """Compute the k=1/2/3 impact ellipses in both NE and lat/lon coordinates.
+
+    Returns east, north arrays [m in the WGS84 local NED frame about the mean impact point],
+    mean_lat, mean_lon,
+    ne_ellipses [(k, color, [[e,n],...])],
+    ll_ellipses [(k, color, [[lat,lon],...])],
+    error: None, or why no ellipse could be fitted. Callers must surface it — a silently
+    missing ellipse is indistinguishable from a successful plot (review D).
     """
-    lats = np.array(lat_list, dtype=float)
-    lons = np.array(lon_list, dtype=float)
-    mean_lat = float(lats.mean())
-    mean_lon = float(lons.mean())
-    R = 6_371_000.0
-    cos_lat = float(np.cos(np.radians(mean_lat)))
-    north = (lats - mean_lat) * (np.pi / 180) * R
-    east  = (lons - mean_lon) * (np.pi / 180) * R * cos_lat
+    empty: tuple = (np.array([]), np.array([]), 0.0, 0.0, [], [])
+    try:
+        frame = post_ellipse.project_to_local_ne(lat_list, lon_list)
+    except post_ellipse.EllipseError as err:
+        _log.warning("impact scatter not projected: %s", err)
+        return empty + (str(err),)
+
+    base = (frame.east, frame.north, frame.center_lat, frame.center_lon)
+    try:
+        fit = post_ellipse.fit_impact_ellipse(lat_list, lon_list)
+    except post_ellipse.EllipseError as err:
+        # Not fatal — the scatter is still worth drawing — but never silent.
+        _log.warning("impact ellipse not computed: %s", err)
+        return base + ([], [], str(err))
 
     ne_ellipses: list = []
     ll_ellipses: list = []
-    if len(lats) >= 3:
-        try:
-            cov = np.cov(np.stack([east, north]))
-            eigvals, eigvecs = np.linalg.eigh(cov)
-            order = np.argsort(eigvals)[::-1]
-            eigvals, eigvecs = eigvals[order], eigvecs[:, order]
-            theta = np.linspace(0, 2 * np.pi, 120)
-            cos_t, sin_t = np.cos(theta), np.sin(theta)
-            for nsig, clr in [(1, '#4caf50'), (2, '#ff9800'), (3, '#f44336')]:
-                a = nsig * float(np.sqrt(max(float(eigvals[0]), 0.0)))
-                b = nsig * float(np.sqrt(max(float(eigvals[1]), 0.0)))
-                ne_pts: list = []
-                ll_pts: list = []
-                for ct, st in zip(cos_t, sin_t):
-                    v = eigvecs @ np.array([a * ct, b * st])
-                    e, nv = float(v[0]), float(v[1])
-                    ne_pts.append([e, nv])
-                    ll_pts.append([
-                        mean_lat + nv / R * (180 / np.pi),
-                        mean_lon + e / (R * cos_lat) * (180 / np.pi),
-                    ])
-                ne_pts.append(ne_pts[0])
-                ll_pts.append(ll_pts[0])
-                ne_ellipses.append((nsig, clr, ne_pts))
-                ll_ellipses.append((nsig, clr, ll_pts))
-        except Exception:
-            pass
-    return east, north, mean_lat, mean_lon, ne_ellipses, ll_ellipses
+    for k, clr in k_levels:
+        ne_pts = [[float(e), float(n)] for e, n in post_ellipse.ellipse_ne(fit, k, close=True)]
+        ne_ellipses.append((k, clr, ne_pts))
+        ll_ellipses.append((k, clr, [fit.ne_to_latlon(e, n) for e, n in ne_pts]))
+    return base + (ne_ellipses, ll_ellipses, None)

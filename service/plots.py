@@ -17,6 +17,7 @@ import pandas as pd
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 
+from post_tool import post_ellipse
 from service import results
 from service.results import ResultError
 
@@ -27,7 +28,11 @@ MAX_BINS = 200
 _FORMATS = ("png", "svg")
 
 _TIME_COL = "Time [s]"
-_ELLIPSE_LABELS = {1: "1σ", 2: "2σ", 3: "3σ"}
+
+
+def _ellipse_label(k: float) -> str:
+    """Legend entry for one dispersion ellipse: the k value and what it actually contains."""
+    return f"k={k:g} ({post_ellipse.containment_2d(k):.2f}%)"
 
 
 def _new_fig(width: float, height: float, dpi: int) -> Figure:
@@ -139,26 +144,30 @@ def dispersion(result_dir: str, table: str, axes: str = "ne", fmt: str = "png",
     if len(lat) == 0:
         raise ResultError("no impact points")
 
-    east, north, mean_lat, mean_lon, ne_ell, ll_ell = results.compute_impact_ellipses(lat, lon)
+    east, north, mean_lat, mean_lon, ne_ell, ll_ell, ell_err = results.compute_impact_ellipses(lat, lon)
     fig = _new_fig(width, height, dpi)
     ax = fig.subplots()
     if axes == "ne":
         ax.scatter(east, north, s=8, color="#333333", alpha=0.6)
-        for nsig, clr, pts in ne_ell:
+        for k, clr, pts in ne_ell:
             arr = np.array(pts)
-            ax.plot(arr[:, 0], arr[:, 1], color=clr, label=f"{_ELLIPSE_LABELS.get(nsig, nsig)} ellipse")
+            ax.plot(arr[:, 0], arr[:, 1], color=clr, label=_ellipse_label(k))
         ax.set_xlabel("East [m]")
         ax.set_ylabel("North [m]")
         ax.set_aspect("equal", adjustable="datalim")
     else:
         ax.scatter(lon, lat, s=8, color="#333333", alpha=0.6)
-        for nsig, clr, pts in ll_ell:
+        for k, clr, pts in ll_ell:
             arr = np.array(pts)
-            ax.plot(arr[:, 1], arr[:, 0], color=clr, label=f"{_ELLIPSE_LABELS.get(nsig, nsig)} ellipse")
+            ax.plot(arr[:, 1], arr[:, 0], color=clr, label=_ellipse_label(k))
         ax.set_xlabel("Longitude [deg]")
         ax.set_ylabel("Latitude [deg]")
-    # nσ ellipses use the √λ convention (2-D containment ~39/86/99%, not 68/95/99.7%; design §5).
-    ax.annotate("nσ ellipse = n·√λ (2-D)", xy=(0.01, 0.01), xycoords="axes fraction",
+    # The legend gives each ellipse's 2-D containment; the note gives the convention behind it,
+    # so the figure never leaves "3σ" to be read as the 1-D 99.73% (design §5 / review Y7).
+    note = "ellipse semi-axes = k·√λ; % is 2-D containment, not the 1-D 68/95/99.7%"
+    if ell_err:
+        note = f"ellipse not drawn: {ell_err}"
+    ax.annotate(note, xy=(0.01, 0.01), xycoords="axes fraction",
                 fontsize="x-small", color="#666666")
     ax.grid(True, alpha=0.3)
     if ne_ell or ll_ell:

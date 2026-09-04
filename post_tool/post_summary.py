@@ -207,6 +207,14 @@ def post_3sigma_summary(case_number_list, maxQ_Q_list, mach_list, time_apogee_li
         return
     high_index = -low_index - 1
 
+    # State the convention: these are 1-D order statistics of each metric, with no distribution
+    # assumption. The impact ellipse of the same run is a 2-D covariance ellipse at k=3, whose
+    # containment is 98.89% — a different quantity that also calls itself "3 sigma".
+    txt.writelines(['Summary 3sigma Convention,'
+                    'empirical 99.73 percentile per metric (1-D order statistic; no Gaussian '
+                    'assumption). The impact dispersion ellipse uses k=3 covariance semi-axes '
+                    '(2-D containment 98.89%) - see the *_ellipse_summary.txt of this run\n'])
+
     def _write_3sigma(label, values, unit):
         ind = np.argsort(values)
         cases_sorted = np.array(case_number_list)[ind]

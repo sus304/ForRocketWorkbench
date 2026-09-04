@@ -1,199 +1,302 @@
+"""Impact-dispersion ellipse fitting — the single implementation used by both the
+post-processing tools and the result service.
+
+Convention (design §5 / review Y7)
+----------------------------------
+The ellipse is a *covariance* ellipse: its semi-axes are ``k * sqrt(lambda)`` where
+``lambda`` are the eigenvalues of the impact-point covariance in the local NE plane.
+``k`` is a Mahalanobis radius, NOT a 1-D sigma level, so its 2-D containment is
+
+    P(k) = 1 - exp(-k**2 / 2)
+
+    k = 1.0    -> 39.35 %        k = 3.0    -> 98.89 %
+    k = 2.0    -> 86.47 %        k = 3.4392 -> 99.73 %   (= sqrt(chi2.ppf(0.9973, df=2)))
+
+The default stays ``k = 3.0`` and the output file names keep the ``3sigma`` token, so a
+"3 sigma ellipse" here contains 98.89 % of a bivariate-normal population — not the 99.73 %
+of the 1-D order-statistic "3 sigma" written by :mod:`post_tool.post_summary`. Every label
+that names the ellipse must carry both ``k`` and the containment; use :func:`convention_label`.
+
+Geodesy: points are converted LLH -> ECEF -> local NED about the sample mean using the WGS84
+ellipsoid (:mod:`lib.coordinate`). No spherical-Earth approximation is used anywhere.
+"""
+
+from dataclasses import dataclass, field
+
 import numpy as np
-import pandas as pd
 from scipy import stats
 
 from lib.coordinate import LLH2ECEF, ECEF2LLH, DCM_ECEF2NED
 
-# class www:
-#     def __init__(self):
-#         self.a = 6378.137e3  # [m]
-#         self.inv_f = 298.257223563
-#         self.omega = 7292115e-11  # [rad/s]
-#         self.GM = 3.986004418e14  # [m3/s2] geocentric gravitational constant
-#         self.f = 1.0 / self.inv_f
-#         self.b = self.a * (1.0 - self.f)  # [m] semi-minor axis
-#         self.e_square = 2.0 * self.f - self.f ** 2
-#         self.e = np.sqrt(self.e_square)  # 離心率
-# wgs84 = www()
-# def ECEF2LLH(pos_ECEF):
-#     x = pos_ECEF[0]
-#     y = pos_ECEF[1]
-#     z = pos_ECEF[2]
+#: Default Mahalanobis radius. Kept at 3.0 for output compatibility (design §5 / Y7).
+DEFAULT_K = 3.0
 
-#     p = np.sqrt(x ** 2 + y ** 2)
-#     theta = np.arctan2(z * wgs84.a, p * wgs84.b)
-#     e_dash_square = (wgs84.a ** 2 - wgs84.b ** 2) / (wgs84.b ** 2)
-#     lat = np.arctan2(z + e_dash_square * wgs84.b * (np.sin(theta) ** 3), p - wgs84.e_square * wgs84.a * (np.cos(theta) ** 3))
-#     lon = np.arctan2(y, x)
-#     N = wgs84.a / np.sqrt(1.0 - wgs84.e_square * np.sin(lat) ** 2)
-#     height = p / np.cos(lat) - N
-#     return np.array([np.rad2deg(lat), np.rad2deg(lon), height])
-
-# def LLH2ECEF(pos_LLH):
-#     lat = np.deg2rad(pos_LLH[0])
-#     lon = np.deg2rad(pos_LLH[1])
-#     height = pos_LLH[2]
-
-#     N = wgs84.a / np.sqrt(1.0 - wgs84.e_square * np.sin(lat) ** 2)
-#     x = (N + height) * np.cos(lat) * np.cos(lon)
-#     y = (N + height) * np.cos(lat) * np.sin(lon)
-#     z = (N * (1 - wgs84.e_square) + height) * np.sin(lat)
-#     return np.array([x, y, z])
-
-# def DCM_ECEF2NED(pos_LLH):
-#     '''
-#     Input: [deg], [deg], [m]
-#     '''
-#     # from MATLAB
-#     lat = np.deg2rad(pos_LLH[0])
-#     lon = np.deg2rad(pos_LLH[1])
-#     DCM_0 = [-np.sin(lat) * np.cos(lon), -np.sin(lat) * np.sin(lon), np.cos(lat)]
-#     DCM_1 = [-np.sin(lon), np.cos(lon), 0]
-#     DCM_2 = [-np.cos(lat) * np.cos(lon), -np.cos(lat) * np.sin(lon), -np.sin(lat)]
-#     DCM_ECEF2NED = np.array([DCM_0, DCM_1, DCM_2])
-#     return DCM_ECEF2NED
-
-def get_ellipse_points(points_latlon):
-    # Step.1 LLH to ECEF
-    pos_ecef_list = []
-    for i in range(len(points_latlon)):
-        llh = np.array([points_latlon[i][0], points_latlon[i][1], 0.0])
-        ecef = LLH2ECEF(llh)
-        pos_ecef_list.append(ecef)
-
-    # Step.2 ECEF to NED. center point is mean latlon
-    lat_mean = 0.0
-    lon_mean = 0.0
-    for i in range(len(points_latlon)):
-        lat_mean += points_latlon[i][0]
-        lon_mean += points_latlon[i][1]
-    lat_mean /= len(points_latlon)
-    lon_mean /= len(points_latlon)
-    ecef_mean = LLH2ECEF(np.array([lat_mean, lon_mean, 0.0]))
-    dcm = DCM_ECEF2NED(np.array([lat_mean, lon_mean, 0.0]))
-    pos_ned_list = []
-    n_array = []
-    e_array = []
-    for i in range(len(pos_ecef_list)):
-        ned = dcm.dot(pos_ecef_list[i] - ecef_mean)
-        pos_ned_list.append(ned)
-        n_array.append(ned[0])
-        e_array.append(ned[1])
-
-    # Step.3 3-sigma Ellipse
-    n_array = np.array(n_array)
-    e_array = np.array(e_array)
-    cov_mat = np.cov([n_array, e_array])
-    var_n = cov_mat[0][0]
-    var_e = cov_mat[1][1]
-    var_ne = cov_mat[0][1]
-    w = -var_n - var_e
-    eigenvalue_a = (-w + np.sqrt(w * w - 4.0 * (var_n * var_e - (var_ne * var_ne)))) / 2.0
-    eigenvalue_b = (-w - np.sqrt(w * w - 4.0 * (var_n * var_e - (var_ne * var_ne)))) / 2.0
-    ell_a = 3.0 * np.sqrt(eigenvalue_a)
-    ell_b = 3.0 * np.sqrt(eigenvalue_b)
-    ell_theta_a = np.arctan((var_e - eigenvalue_a - var_ne) / (var_n - eigenvalue_a - var_ne))
-    ell_theta_b = ell_theta_a + np.pi / 2
-
-    # Step.4 Envelope
-    def zero_angle_contact_point(d_theta):
-        xm = np.sqrt(ell_a**4 * np.tan(d_theta)**2 / (ell_a**2 * np.tan(d_theta)**2 + ell_b**2))
-        ym = np.sqrt(ell_b**4 / (ell_a**2 * np.tan(d_theta)**2 + ell_b**2))
-        return xm, ym
-
-    delta_theta = ell_theta_a - ell_theta_a
-    xm1, ym1 = zero_angle_contact_point(delta_theta)
-    if 0 < delta_theta <= np.pi:
-        xm1 *= -1.0
-    if -np.pi/2 <= delta_theta <= np.pi/2:
-        pass
-    else:
-        ym1 *= -1.0
-
-    delta_theta = ell_theta_b - ell_theta_a
-    xm2, ym2 = zero_angle_contact_point(delta_theta)
-    if 0 < delta_theta <= np.pi:
-        xm2 *= -1.0
-    if -np.pi/2 <= delta_theta <= np.pi/2:
-        pass
-    else:
-        ym2 *= -1.0
-
-    delta_theta = ell_theta_a - ell_theta_a
-    xm3, ym3 = zero_angle_contact_point(delta_theta)
-    if 0 < delta_theta < np.pi:
-        pass
-    else:
-        xm3 *= -1.0
-    if -np.pi/2 < delta_theta <= np.pi/2:
-        ym3 *= -1.0
-
-    delta_theta = ell_theta_b - ell_theta_a
-    xm4, ym4 = zero_angle_contact_point(delta_theta)
-    if 0 < delta_theta <= np.pi:
-        pass
-    else:
-        xm4 *= -1.0
-    if -np.pi/2 <= delta_theta <= np.pi/2:
-        ym4 *= -1.0
-
-    xm1_dash = xm1 * np.cos(ell_theta_a) - ym1 * np.sin(ell_theta_a)
-    ym1_dash = xm1 * np.sin(ell_theta_a) + ym1 * np.cos(ell_theta_a)
-    xm2_dash = xm2 * np.cos(ell_theta_a) - ym2 * np.sin(ell_theta_a)
-    ym2_dash = xm2 * np.sin(ell_theta_a) + ym2 * np.cos(ell_theta_a)
-    xm3_dash = xm3 * np.cos(ell_theta_a) - ym3 * np.sin(ell_theta_a)
-    ym3_dash = xm3 * np.sin(ell_theta_a) + ym3 * np.cos(ell_theta_a)
-    xm4_dash = xm4 * np.cos(ell_theta_a) - ym4 * np.sin(ell_theta_a)
-    ym4_dash = xm4 * np.sin(ell_theta_a) + ym4 * np.cos(ell_theta_a)
-
-    def corner_point(alpha1, beta1, alpha2, beta2):
-        xk = (beta2 - beta1) / (alpha1 - alpha2)
-        yk = (alpha1 * beta2 - alpha2 * beta1) / (alpha1 - alpha2)
-        return xk, yk
-    alpha1 = np.tan(ell_theta_a)
-    beta1 = ym1_dash - xm1_dash * np.tan(ell_theta_a)
-    alpha2 = np.tan(ell_theta_b)
-    beta2 = ym2_dash - xm2_dash * np.tan(ell_theta_b)
-    alpha3 = np.tan(ell_theta_a)
-    beta3 = ym3_dash - xm3_dash * np.tan(ell_theta_a)
-    alpha4 = np.tan(ell_theta_b)
-    beta4 = ym4_dash - xm4_dash * np.tan(ell_theta_b)
-
-    xk1, yk1 = corner_point(alpha1, beta1, alpha2, beta2)
-    xk2, yk2 = corner_point(alpha2, beta2, alpha3, beta3)
-    xk3, yk3 = corner_point(alpha3, beta3, alpha4, beta4)
-    xk4, yk4 = corner_point(alpha4, beta4, alpha1, beta1)
-
-    # Step.5 NED to LLH
-    ecef1 = ecef_mean + dcm.transpose().dot(np.array([yk1, xk1, 0]))
-    ecef2 = ecef_mean + dcm.transpose().dot(np.array([yk2, xk2, 0]))
-    ecef3 = ecef_mean + dcm.transpose().dot(np.array([yk3, xk3, 0]))
-    ecef4 = ecef_mean + dcm.transpose().dot(np.array([yk4, xk4, 0]))
-
-    llh1 = ECEF2LLH(ecef1)
-    llh2 = ECEF2LLH(ecef2)
-    llh3 = ECEF2LLH(ecef3)
-    llh4 = ECEF2LLH(ecef4)
-
-    # Step.Ex ellipse output
-    theta_array = np.deg2rad(np.arange(0, 360.0, 5.0))
-    e1 = ell_a * np.cos(theta_array)
-    n1 = ell_b * np.sin(theta_array)
-    ell_e_array = e1 * np.cos(ell_theta_a) - n1 * np.sin(ell_theta_a)
-    ell_n_array = e1 * np.sin(ell_theta_a) + n1 * np.cos(ell_theta_a)
-    ell_llh_list = []
-    for i in range(len(theta_array)):
-        ecef = ecef_mean + dcm.transpose().dot(np.array([ell_n_array[i], ell_e_array[i], 0]))
-        ell_llh_list.append(ECEF2LLH(ecef))
+#: Non-normality warning thresholds for the fit diagnostics.
+SKEW_WARN = 0.5
+EXCESS_KURTOSIS_WARN = 1.0
 
 
-    return [llh1, llh2, llh3, llh4], ell_llh_list
+class EllipseError(ValueError):
+    """The impact points do not admit an ellipse fit (too few points, or degenerate)."""
 
 
-
-if __name__ == '__main__':
-    latlons = [[32.7,142], [32.2,141], [32,142], [33,143], [33.2,142.5]]
-    get_ellipse_points(latlons)
-
+def containment_2d(k: float) -> float:
+    """Fraction of a bivariate normal inside the ``k*sqrt(lambda)`` ellipse, in percent."""
+    return float(100.0 * (1.0 - np.exp(-0.5 * float(k) ** 2)))
 
 
+def k_for_containment(p: float) -> float:
+    """Mahalanobis radius whose 2-D containment is ``p`` (0-1). ``k_for_containment(0.9973)``
+    is 3.4392 — the radius that matches the 1-D 3-sigma probability."""
+    return float(np.sqrt(stats.chi2.ppf(p, df=2)))
+
+
+def convention_label(k: float = DEFAULT_K) -> str:
+    """One-line statement of the ellipse convention, for KML/plot/summary labels."""
+    return f"k={k:g} (Mahalanobis, semi-axes = k*sqrt(lambda)); 2-D containment {containment_2d(k):.2f}%"
+
+
+@dataclass
+class LocalFrame:
+    """Impact points projected onto the local NED tangent plane about their mean (WGS84).
+
+    Shared by the ellipse fit and by callers that only need the scatter (e.g. a plot whose
+    ellipse could not be fitted).
+    """
+
+    center_lat: float
+    center_lon: float
+    east: np.ndarray = field(repr=False)      # [m]
+    north: np.ndarray = field(repr=False)     # [m]
+    ecef_mean: np.ndarray = field(repr=False)
+    dcm: np.ndarray = field(repr=False)
+
+    def ne_to_latlon(self, east_m, north_m):
+        """Local-frame [m] -> [lat, lon] [deg] on the WGS84 ellipsoid."""
+        ecef = self.ecef_mean + self.dcm.T.dot(np.array([north_m, east_m, 0.0]))
+        llh = ECEF2LLH(ecef)
+        return [float(llh[0]), float(llh[1])]
+
+    def latlon_to_ne(self, lat, lon):
+        """[lat, lon] [deg] -> local-frame (east, north) [m]. Inverse of :meth:`ne_to_latlon`
+        up to the tangent-plane height the forward map introduces (millimetres at MC scale)."""
+        ned = self.dcm.dot(LLH2ECEF(np.array([float(lat), float(lon), 0.0])) - self.ecef_mean)
+        return float(ned[1]), float(ned[0])
+
+
+def project_to_local_ne(lat_list, lon_list) -> LocalFrame:
+    """LLH -> local NED about the sample mean, on the WGS84 ellipsoid.
+
+    Non-finite points are dropped. Raises :class:`EllipseError` if nothing usable is left.
+    """
+    lats = np.asarray(lat_list, dtype=float).ravel()
+    lons = np.asarray(lon_list, dtype=float).ravel()
+    if lats.shape != lons.shape:
+        raise EllipseError("lat/lon must have the same length")
+    good = np.isfinite(lats) & np.isfinite(lons)
+    lats, lons = lats[good], lons[good]
+    if len(lats) == 0:
+        raise EllipseError("no finite impact points")
+
+    center = np.array([float(lats.mean()), float(lons.mean()), 0.0])
+    ecef_mean = LLH2ECEF(center)
+    dcm = DCM_ECEF2NED(center)
+    ned = np.array([dcm.dot(LLH2ECEF(np.array([la, lo, 0.0])) - ecef_mean)
+                    for la, lo in zip(lats, lons)])
+    return LocalFrame(center_lat=center[0], center_lon=center[1],
+                      east=ned[:, 1], north=ned[:, 0], ecef_mean=ecef_mean, dcm=dcm)
+
+
+@dataclass
+class EllipseFit:
+    """A fitted impact-dispersion ellipse, in *1-sigma* form: scale by ``k`` when drawing.
+
+    ``theta`` is the major-axis direction in the local E-N plane, measured from East toward
+    North (counter-clockwise), in radians.
+    """
+
+    frame: LocalFrame
+    sigma_a: float          # major 1-sigma semi-axis = sqrt(lambda_max) [m]
+    sigma_b: float          # minor 1-sigma semi-axis = sqrt(lambda_min) [m]
+    theta: float            # [rad] major axis, from East toward North
+    n: int
+
+    center_lat = property(lambda self: self.frame.center_lat)
+    center_lon = property(lambda self: self.frame.center_lon)
+    east = property(lambda self: self.frame.east)
+    north = property(lambda self: self.frame.north)
+
+    @property
+    def azimuth_deg(self) -> float:
+        """Compass azimuth of the major axis [deg], 0 = North, 90 = East, in [0, 180)."""
+        return float(np.degrees(np.pi / 2 - self.theta) % 180.0)
+
+    def semi_axes(self, k: float = DEFAULT_K):
+        """(major, minor) semi-axes [m] of the k-ellipse."""
+        return float(k) * self.sigma_a, float(k) * self.sigma_b
+
+    def mahalanobis(self) -> np.ndarray:
+        """Mahalanobis radius of every sample point w.r.t. the fitted ellipse."""
+        u, v = self._principal_coords()
+        return np.hypot(u / self.sigma_a, v / self.sigma_b)
+
+    def _principal_coords(self):
+        """Sample coordinates along the major/minor axes, centred on the fit."""
+        de = self.east - self.east.mean()
+        dn = self.north - self.north.mean()
+        c, s = np.cos(self.theta), np.sin(self.theta)
+        return de * c + dn * s, -de * s + dn * c
+
+    def ne_to_latlon(self, east_m, north_m):
+        """Local-frame [m] -> [lat, lon] [deg] on the WGS84 ellipsoid."""
+        return self.frame.ne_to_latlon(east_m, north_m)
+
+
+def fit_impact_ellipse(lat_list, lon_list) -> EllipseFit:
+    """Fit the impact covariance ellipse. Raises :class:`EllipseError` if it cannot be fitted."""
+    frame = project_to_local_ne(lat_list, lon_list)
+    if len(frame.east) < 3:
+        raise EllipseError(f"need at least 3 finite impact points, got {len(frame.east)}")
+
+    # Principal axes in the (East, North) plane. eigh returns ascending eigenvalues.
+    cov = np.cov(np.stack([frame.east, frame.north]))
+    eigvals, eigvecs = np.linalg.eigh(cov)
+    order = np.argsort(eigvals)[::-1]
+    eigvals, eigvecs = eigvals[order], eigvecs[:, order]
+    sigma_a = float(np.sqrt(max(float(eigvals[0]), 0.0)))
+    sigma_b = float(np.sqrt(max(float(eigvals[1]), 0.0)))
+    if not np.isfinite(sigma_a) or sigma_a <= 0.0:
+        raise EllipseError("impact points are degenerate (zero-variance covariance)")
+    major = eigvecs[:, 0]
+    theta = float(np.arctan2(major[1], major[0]))  # from East toward North
+
+    return EllipseFit(frame=frame, sigma_a=sigma_a, sigma_b=sigma_b, theta=theta,
+                      n=int(len(frame.east)))
+
+
+def _rotate(u, v, theta):
+    """Principal-frame (u, v) -> local-frame (east, north)."""
+    c, s = np.cos(theta), np.sin(theta)
+    return u * c - v * s, u * s + v * c
+
+
+def ellipse_ne(fit: EllipseFit, k: float = DEFAULT_K, n_points: int = 72, close: bool = False):
+    """The k-ellipse as an (m, 2) array of (east, north) [m]."""
+    a, b = fit.semi_axes(k)
+    t = np.linspace(0.0, 2.0 * np.pi, n_points, endpoint=False)
+    e, n = _rotate(a * np.cos(t), b * np.sin(t), fit.theta)
+    pts = np.stack([e, n], axis=1)
+    return np.vstack([pts, pts[:1]]) if close else pts
+
+
+def ellipse_latlon(fit: EllipseFit, k: float = DEFAULT_K, n_points: int = 72):
+    """The k-ellipse as a list of [lat, lon] [deg]."""
+    return [fit.ne_to_latlon(e, n) for e, n in ellipse_ne(fit, k, n_points)]
+
+
+def envelope_ne(fit: EllipseFit, k: float = DEFAULT_K):
+    """The four corners of the rectangle circumscribing the k-ellipse, as (4, 2) (east, north).
+
+    The rectangle is axis-aligned *in the ellipse's principal frame*, so its sides touch the
+    ellipse at the four axis endpoints and its corners are (+-a, +-b) rotated by ``theta``.
+    Ordered counter-clockwise in that frame, so the polyline traces the rectangle.
+    """
+    a, b = fit.semi_axes(k)
+    corners = [(a, b), (-a, b), (-a, -b), (a, -b)]
+    return np.array([_rotate(u, v, fit.theta) for u, v in corners])
+
+
+def envelope_latlon(fit: EllipseFit, k: float = DEFAULT_K):
+    """The circumscribing rectangle as a list of [lat, lon] [deg]."""
+    return [fit.ne_to_latlon(e, n) for e, n in envelope_ne(fit, k)]
+
+
+def diagnose_fit(fit: EllipseFit, k: float = DEFAULT_K, n_boot: int = 400,
+                 seed: int = 0, boot_min_n: int = 200) -> dict:
+    """How well does the covariance ellipse actually describe the impact points?
+
+    Returns the empirical containment of the k-ellipse, the skewness / excess kurtosis along
+    the principal axes, any threshold warnings, and (when the sample is large enough) a
+    bootstrap 95 % CI of the semi-axes. Impact dispersions go non-normal easily — mixed
+    failure modes, asymmetric winds — and the ellipse alone cannot show that.
+    """
+    u, v = fit._principal_coords()
+    out = {
+        "n": fit.n,
+        "k": float(k),
+        "containment_theoretical": containment_2d(k),
+        "containment_empirical": float(100.0 * np.mean(fit.mahalanobis() <= k)),
+        "skew_major": float(stats.skew(u)),
+        "skew_minor": float(stats.skew(v)),
+        "excess_kurtosis_major": float(stats.kurtosis(u, fisher=True)),
+        "excess_kurtosis_minor": float(stats.kurtosis(v, fisher=True)),
+        "warnings": [],
+    }
+    for axis in ("major", "minor"):
+        if abs(out[f"skew_{axis}"]) > SKEW_WARN:
+            out["warnings"].append(
+                f"skewness on the {axis} axis is {out[f'skew_{axis}']:+.2f} "
+                f"(|skew| > {SKEW_WARN}); the distribution is asymmetric and the ellipse is "
+                f"centred on the mean, not the mode")
+        if abs(out[f"excess_kurtosis_{axis}"]) > EXCESS_KURTOSIS_WARN:
+            out["warnings"].append(
+                f"excess kurtosis on the {axis} axis is {out[f'excess_kurtosis_{axis}']:+.2f} "
+                f"(|excess kurtosis| > {EXCESS_KURTOSIS_WARN}); tails are not Gaussian and the "
+                f"ellipse under- or over-states the outer contour")
+    gap = out["containment_empirical"] - out["containment_theoretical"]
+    if abs(gap) > 1.0:
+        out["warnings"].append(
+            f"empirical containment {out['containment_empirical']:.2f}% differs from the "
+            f"theoretical {out['containment_theoretical']:.2f}% by {gap:+.2f} points; the "
+            f"Gaussian assumption behind the ellipse does not hold well for this sample")
+
+    if fit.n >= boot_min_n:
+        rng = np.random.default_rng(seed)
+        pts = np.stack([fit.east, fit.north], axis=1)
+        axes = np.empty((n_boot, 2))
+        for i in range(n_boot):
+            sample = pts[rng.integers(0, fit.n, fit.n)]
+            ev = np.linalg.eigvalsh(np.cov(sample.T))
+            axes[i] = float(k) * np.sqrt(np.maximum(ev[::-1], 0.0))
+        lo, hi = np.percentile(axes, [2.5, 97.5], axis=0)
+        out["semi_major_ci95"] = (float(lo[0]), float(hi[0]))
+        out["semi_minor_ci95"] = (float(lo[1]), float(hi[1]))
+    return out
+
+
+def write_ellipse_summary(fit: EllipseFit, file_prefix: str, k: float = DEFAULT_K) -> dict:
+    """Write ``{prefix}_ellipse_summary.txt`` — the ellipse geometry plus its fit diagnostics.
+
+    Separate from ``{prefix}_summary.txt`` on purpose: that one only exists for >= 1000 cases
+    (it reports empirical 99.73 % order statistics), while the ellipse is fitted from 3 points
+    up. The ``*_summary.txt`` name still makes the result service pick it up automatically.
+    """
+    d = diagnose_fit(fit, k)
+    a, b = fit.semi_axes(k)
+    path = file_prefix + '_ellipse_summary.txt'
+    lines = [
+        f'Ellipse Convention,{convention_label(k)}\n',
+        f'Ellipse Cases,{fit.n}\n',
+        f'Ellipse Semi-major,{a:.3f}[m]\n',
+        f'Ellipse Semi-minor,{b:.3f}[m]\n',
+        f'Ellipse Major-axis Azimuth,{fit.azimuth_deg:.3f}[deg]\n',
+        f'Ellipse Center Lat,{fit.center_lat:.6f}[deg]\n',
+        f'Ellipse Center Lon,{fit.center_lon:.6f}[deg]\n',
+        f'Ellipse Containment Theoretical,{d["containment_theoretical"]:.2f}[%]\n',
+        f'Ellipse Containment Empirical,{d["containment_empirical"]:.2f}[%]\n',
+        f'Ellipse Skewness Major,{d["skew_major"]:.3f}[-]\n',
+        f'Ellipse Skewness Minor,{d["skew_minor"]:.3f}[-]\n',
+        f'Ellipse Excess Kurtosis Major,{d["excess_kurtosis_major"]:.3f}[-]\n',
+        f'Ellipse Excess Kurtosis Minor,{d["excess_kurtosis_minor"]:.3f}[-]\n',
+    ]
+    if 'semi_major_ci95' in d:
+        lines += [
+            f'Ellipse Semi-major CI95,{d["semi_major_ci95"][0]:.3f} - {d["semi_major_ci95"][1]:.3f}[m]\n',
+            f'Ellipse Semi-minor CI95,{d["semi_minor_ci95"][0]:.3f} - {d["semi_minor_ci95"][1]:.3f}[m]\n',
+        ]
+    for i, w in enumerate(d['warnings'], 1):
+        lines.append(f'Ellipse Fit Warning {i},{w}\n')
+    with open(path, mode='w') as f:
+        f.writelines(lines)
+    d['path'] = path
+    return d

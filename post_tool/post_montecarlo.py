@@ -7,7 +7,9 @@ from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor
 
 from post_tool.post_summary import post_summary_for_montecarlo, post_3sigma_summary
-from post_tool.post_ellipse import get_ellipse_points
+from post_tool.post_ellipse import (DEFAULT_K, EllipseError, convention_label,
+                                    ellipse_latlon, envelope_latlon, fit_impact_ellipse,
+                                    write_ellipse_summary)
 from post_tool.post_kml import dump_montecarlo_points_kml, dump_montecarlo_envelop_kml
 from post_tool.post_iip import (write_iip_log, has_iip_input, should_run_iip,
                                  IIP_INPUT_COLUMNS, IIP_MIN_APOGEE_M)
@@ -187,6 +189,41 @@ def _metric_lists(results, ballistic):
     return tuple(list(c) for c in cols)
 
 
+def _write_dispersion_ellipse(impact_points, prefix, k=DEFAULT_K):
+    """Fit the impact-dispersion ellipse once, then write the ellipse KML, the rectangle that
+    circumscribes it, and the fit diagnostics.
+
+    Both KMLs carry the containment convention in their name/description: the file name only
+    says "3sigma", which a reader will take for the 1-D 99.73% and which neither file contains.
+    """
+    try:
+        fit = fit_impact_ellipse([p[0] for p in impact_points], [p[1] for p in impact_points])
+    except EllipseError as err:
+        print(f"落下分散楕円: 算出できませんでした（{err}）")
+        return None
+
+    conv = convention_label(k)
+    dump_montecarlo_envelop_kml(
+        envelope_latlon(fit, k), prefix,
+        name=f"Impact dispersion envelope (k={k:g})",
+        description=("Rectangle circumscribing the impact dispersion ellipse, aligned with the "
+                     f"ellipse principal axes — not the ellipse itself, and it contains more "
+                     f"than the ellipse does. Ellipse convention: {conv}."))
+    dump_montecarlo_envelop_kml(
+        ellipse_latlon(fit, k), (prefix + '_ellipse') if prefix else 'ellipse',
+        name=f"Impact dispersion ellipse (k={k:g})",
+        description=(f"Impact dispersion covariance ellipse. {conv}. This is NOT the 99.73% of "
+                     f"the 1-D 3-sigma values in the *_summary.txt of the same run."))
+
+    diag = write_ellipse_summary(fit, prefix, k)
+    print(f"落下分散楕円: {conv} / 実測包含率 {diag['containment_empirical']:.2f}% "
+          f"(n={fit.n}, 半長軸 {k * fit.sigma_a:.1f} m, 半短軸 {k * fit.sigma_b:.1f} m, "
+          f"主軸方位 {fit.azimuth_deg:.1f} deg)")
+    for w in diag['warnings']:
+        print(f"落下分散楕円 警告: {w}")
+    return fit
+
+
 def _save_impact_results(case_numbers, maxQ, max_mach, time_apogee, altitude, vel_apogee,
                          downrange, impact_points, prefix,
                          peak_total_aoa=None, aoa_launch_clear=None,
@@ -194,9 +231,7 @@ def _save_impact_results(case_numbers, maxQ, max_mach, time_apogee, altitude, ve
                          min_sg=None, min_resonance_ratio=None,
                          max_trim_aoa=None, max_lateral_aero_load=None):
     """Write result_table.csv, envelope KMLs, and 3-sigma summary for one scenario."""
-    envelope_pts, ellipse_pts = get_ellipse_points(impact_points)
-    dump_montecarlo_envelop_kml(envelope_pts, prefix)
-    dump_montecarlo_envelop_kml(ellipse_pts, (prefix + '_ellipse') if prefix else 'ellipse')
+    _write_dispersion_ellipse(impact_points, prefix)
     dump_montecarlo_points_kml(impact_points, case_numbers, prefix)
 
     lat_list = [p[0] for p in impact_points]

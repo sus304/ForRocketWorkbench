@@ -144,18 +144,32 @@ def test_compute_impact_ellipses_shapes():
     rng = np.random.default_rng(0)
     lats = (35.0 + rng.normal(0, 0.01, 200)).tolist()
     lons = (139.0 + rng.normal(0, 0.01, 200)).tolist()
-    east, north, mlat, mlon, ne_ell, ll_ell = render.compute_impact_ellipses(lats, lons)
+    east, north, mlat, mlon, ne_ell, ll_ell, err = render.compute_impact_ellipses(lats, lons)
+    assert err is None
     assert len(east) == len(north) == 200
     assert abs(mlat - 35.0) < 0.01 and abs(mlon - 139.0) < 0.01
-    assert [n for n, _, _ in ne_ell] == [1, 2, 3]  # 1σ/2σ/3σ
+    assert [k for k, _, _ in ne_ell] == [1.0, 2.0, 3.0]  # k = 1/2/3 (not 1-D sigma levels)
     # each ellipse polyline is closed (first point repeated at the end)
-    for _n, _clr, pts in ll_ell:
+    for _k, _clr, pts in ll_ell:
         assert pts[0] == pts[-1]
 
 
+def test_mc_impact_scatter_legend_matches_series():
+    """echarts の legend.data は系列名と一致していなければ楕円が凡例に出ない。
+    系列名には k と 2次元包含率が入る（"3σ" 単独表記を禁じているため）。"""
+    _, _, _, _, ne_ell, _, _ = render.compute_impact_ellipses(
+        (35.0 + np.random.default_rng(1).normal(0, 0.01, 100)).tolist(),
+        (139.0 + np.random.default_rng(2).normal(0, 0.01, 100)).tolist())
+    opts = render._mc_impact_scatter_opts([[0.0, 0.0]], ne_ell)
+    names = [srs['name'] for srs in opts['series'] if srs['type'] == 'line']
+    assert opts['legend']['data'] == ['Impact'] + names
+    assert names == ['k=1 (39.35%)', 'k=2 (86.47%)', 'k=3 (98.89%)']
+
+
 def test_compute_impact_ellipses_too_few_points():
-    east, north, _, _, ne_ell, ll_ell = render.compute_impact_ellipses([35.0, 35.1], [139.0, 139.1])
+    east, north, _, _, ne_ell, ll_ell, err = render.compute_impact_ellipses([35.0, 35.1], [139.0, 139.1])
     assert len(east) == 2 and ne_ell == [] and ll_ell == []
+    assert err and "at least 3" in err   # the scatter still renders, but the reason is reported
 
 
 # --- API response converters (design §6) -------------------------------------

@@ -27,9 +27,12 @@ from web.service_ui import config
 
 # manifest role → display label. list_kml logical names are "{qualifier}_{kind}" (qualifier is a
 # phase like stage1/ballistic, or an MC scenario like decent/ballistic) or a bare kind.
+# "3σ" は使わない: 楕円は k=3 のマハラノビス楕円（2次元包含 98.89%）であって 1次元の 99.73%
+# ではなく、包絡はその楕円に外接する長方形でさらに広い（design §5 / review Y7）。
 _ROLE_NAME = {
     "nominal": "飛行経路", "iip": "IIP 軌跡", "points": "落下点群",
-    "envelope": "3σ 包絡", "ellipse": "分散楕円", "track": "flight_log",
+    "envelope": "分散楕円の外接長方形 (k=3)", "ellipse": "分散楕円 (k=3, 2次元包含 98.89%)",
+    "track": "flight_log",
 }
 # kind token (suffix of the logical name) → role.
 _KIND_ROLE = (("trajectory", "nominal"), ("iip", "iip"), ("points", "points"),

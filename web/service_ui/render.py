@@ -431,14 +431,17 @@ def _mc_histogram_opts(data: list, title: str, unit: str, color: str) -> dict:
 
 # Impact-dispersion ellipse math moved to service.results so the plots API and this echarts
 # render share one implementation (design §3.4). Re-exported here for existing callers/tests.
+from post_tool.post_ellipse import containment_2d  # noqa: E402
 from service.results import compute_impact_ellipses  # noqa: E402,F401
 
 
 def _mc_impact_scatter_opts(scatter_data: list, ne_ellipses: list) -> dict:
+    # Series name carries k and its 2-D containment: "3σ" alone reads as the 1-D 99.73%,
+    # which a k=3 covariance ellipse does not contain (design §5 / review Y7).
     ellipse_series = [
-        {'type': 'line', 'name': f'{nsig}σ', 'data': pts,
+        {'type': 'line', 'name': f'k={k:g} ({containment_2d(k):.2f}%)', 'data': pts,
          'showSymbol': False, 'lineStyle': {'color': clr, 'width': 1.5}, 'z': 1}
-        for nsig, clr, pts in ne_ellipses
+        for k, clr, pts in ne_ellipses
     ]
     d = _D
     return {
@@ -447,7 +450,8 @@ def _mc_impact_scatter_opts(scatter_data: list, ne_ellipses: list) -> dict:
         'title': {'text': 'Impact Scatter (Local NE)',
                   'textStyle': {'color': d['ax'], 'fontSize': 11},
                   'left': 'center', 'top': 2},
-        'legend': {'data': ['Impact', '1σ', '2σ', '3σ'],
+        # Legend entries must match the series names above, so build them from the series.
+        'legend': {'data': ['Impact'] + [srs['name'] for srs in ellipse_series],
                    'textStyle': {'color': d['ax'], 'fontSize': 9},
                    'right': 6, 'top': 4, 'itemWidth': 12, 'itemHeight': 8},
         'tooltip': {'trigger': 'item', 'backgroundColor': '#1e1e2e',
@@ -1032,9 +1036,13 @@ def _build_mc_card(df_mc: pd.DataFrame, label: str):
             lats = df_mc['lat_impact'].dropna().tolist()
             lons = df_mc['lon_impact'].dropna().tolist()
             if len(lats) >= 3:
-                east, north, mean_lat, mean_lon, ne_ell, ll_ell = compute_impact_ellipses(lats, lons)
+                (east, north, mean_lat, mean_lon,
+                 ne_ell, ll_ell, ell_err) = compute_impact_ellipses(lats, lons)
                 scatter_data = [[float(e), float(nv)] for e, nv in zip(east, north)]
                 ui.echart(_mc_impact_scatter_opts(scatter_data, ne_ell)).style('width:100%;height:380px')
+                if ell_err:
+                    # Say why instead of just showing a bare scatter (review D).
+                    ui.label(f'分散楕円は算出できませんでした: {ell_err}').classes('text-caption text-negative')
 
                 with ui.card().classes('w-full q-mt-sm'):
                     ui.label('Impact Points Map').classes('text-subtitle2 q-mb-xs')

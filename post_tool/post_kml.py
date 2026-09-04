@@ -68,10 +68,22 @@ def dump_montecarlo_points_kml(impact_points_LatLon, case_numbers, file_prefix):
         kml_point.extendeddata = exdata
     kml.save(file_prefix + '_impact_points.kml')
 
-def dump_montecarlo_envelop_kml(envelop_corner_LatLon, file_prefix):
+def dump_montecarlo_envelop_kml(envelop_corner_LatLon, file_prefix, name=None, description=None):
+    """Write a closed polyline KML for an impact-dispersion boundary.
+
+    `name`/`description` carry the containment convention into the file itself: opened in
+    Google Earth the file name only says "3sigma", which reads as the 1-D 99.73% and is not
+    what either the ellipse or its envelope contains (post_ellipse module docstring).
+    """
     kml = simplekml.Kml()
     linestring = kml.newlinestring()
     linestring.style.linestyle.color = simplekml.Color.orange
+    if name:
+        linestring.name = name
+        kml.document.name = name
+    if description:
+        linestring.description = description
+        kml.document.description = description
     kml_points = []
     for point in envelop_corner_LatLon:
         p = [point[1], point[0], 0]
