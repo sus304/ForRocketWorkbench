@@ -7,12 +7,15 @@ from scipy.stats import linregress
 from tqdm import tqdm
 
 from path_define import chdir
+from post_tool.apogee import refine_apogee
+
+_APOGEE_COLS = ('Time [s]', 'Altitude [m]', 'Vz-NED [m/s]')
 
 
 def _extract_apogee(log_file):
     case_num = int(log_file.split('_', 1)[0])
-    df = pd.read_csv(log_file, usecols=['Altitude [m]'])
-    return case_num, float(df['Altitude [m]'].max())
+    df = pd.read_csv(log_file, usecols=lambda c: c in _APOGEE_COLS)
+    return case_num, float(refine_apogee(df).altitude)
 
 
 def post_sensitivity(sensitivity_work_dir, calc_dir='cases'):

@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 
+from post_tool.apogee import refine_apogee, value_at_apogee, diagnostics_text
+
 # Target altitude for apogee "reach probability" statistics (Karman line, 100 km).
 REACH_ALTITUDE_THRESHOLD_M = 100000.0
 
@@ -19,13 +21,16 @@ def post_summary(df_all, file_prefix):
     aoa_launch_clear = df_all["AoA [deg]"][index_launch_clear]
     aos_launch_clear = df_all["AoS [deg]"][index_launch_clear]
 
-    # Apogee
-    index_apogee = np.argmax(df_all["Altitude [m]"])
-    time_apogee = df_all["Time [s]"][index_apogee]
-    altitude_apogee = df_all["Altitude [m]"][index_apogee]
-    downrange_apogee = df_all["Downrange [m]"][index_apogee]
-    vel_apogee = vel_norm_log[index_apogee]
-    pos_apogee = [float(df_all["Latitude [deg]"][index_apogee]), float(df_all["Longitude [deg]"][index_apogee])]
+    apo = refine_apogee(df_all)
+    index_apogee = apo.index          # raw argmax; slice bound for maxQ/maxVel/maxMach as before
+    time_apogee = apo.time
+    altitude_apogee = apo.altitude
+    downrange_apogee = value_at_apogee(df_all, "Downrange [m]", apo)
+    vel_apogee = np.interp(apo.time, df_all["Time [s]"].to_numpy(dtype=float),
+                           vel_norm_log.to_numpy(dtype=float)) if apo.method == "hermite" \
+        else vel_norm_log[index_apogee]
+    pos_apogee = [value_at_apogee(df_all, "Latitude [deg]", apo),
+                  value_at_apogee(df_all, "Longitude [deg]", apo)]
 
     # MaxQ
     index_maxq = np.argmax(df_all["DynamicPressure [kPa]"][:index_apogee])
@@ -98,6 +103,7 @@ def post_summary(df_all, file_prefix):
     txt.writelines(['Apogee Downrange,', str(round(downrange_apogee, 3)), '[m]\n'])
     txt.writelines(['Apogee Air Velocity,', str(round(vel_apogee, 3)), '[m/s]\n'])
     txt.writelines(['Apogee Point,', str(pos_apogee), '\n'])
+    txt.write(diagnostics_text(apo))
     txt.writelines(['Landing X+,', str(round(time_landing, 3)), '[s]\n'])
     txt.writelines(['Landing Downrange,', str(round(downrange_landing, 3)), '[m]\n'])
     txt.writelines(['Landing Point,', str(pos_landing), '\n'])
@@ -124,10 +130,13 @@ def post_summary_for_montecarlo(df_all):
     vel_b_z_log = df_all["Vz-body [m/s]"]
     vel_norm_log = np.sqrt(vel_b_x_log ** 2 + vel_b_y_log ** 2 + vel_b_z_log ** 2)
 
-    index_apogee = np.argmax(df_all["Altitude [m]"])
-    time_apogee = df_all["Time [s]"][index_apogee]
-    altitude_apogee = df_all["Altitude [m]"][index_apogee]
-    vel_apogee = vel_norm_log[index_apogee]
+    apo = refine_apogee(df_all)
+    index_apogee = apo.index
+    time_apogee = apo.time
+    altitude_apogee = apo.altitude
+    vel_apogee = np.interp(apo.time, df_all["Time [s]"].to_numpy(dtype=float),
+                           vel_norm_log.to_numpy(dtype=float)) if apo.method == "hermite" \
+        else vel_norm_log[index_apogee]
 
     index_maxq = np.argmax(df_all["DynamicPressure [kPa]"][:index_apogee])
     dynamic_pressure_maxq = df_all["DynamicPressure [kPa]"][index_maxq]
